@@ -108,11 +108,11 @@ linters:
       - linters:
           - gosec
         text: "G404"
-      # Tests legitimately build file paths and URLs from variables.
+      # Tests build file paths and URLs from variables and use fake keys.
       - path: _test\.go
         linters:
           - gosec
-        text: "G(304|107|704)"
+        text: "G(101|107|304|704)"
 
 formatters:
   enable:

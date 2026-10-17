@@ -89,6 +89,7 @@ type responseWriter struct {
 }
 
 func (rw *responseWriter) serve(h http.Handler, req *http.Request) {
+	ctx := req.Context()
 	defer func() { _ = req.Body.Close() }()
 	defer func() {
 		if v := recover(); v != nil {
@@ -103,7 +104,9 @@ func (rw *responseWriter) serve(h http.Handler, req *http.Request) {
 			return
 		}
 		rw.WriteHeader(http.StatusOK)
-		_ = rw.body.Close()
+		// A canceled request reads as canceled even if the handler then
+		// returned normally, as with a real connection.
+		_ = rw.body.CloseWithError(context.Cause(ctx))
 	}()
 	h.ServeHTTP(rw, req)
 }
