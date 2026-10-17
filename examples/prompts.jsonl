@@ -1,0 +1,12 @@
+{"prompt": "Explain the difference between latency and throughput in two sentences."}
+{"prompt": "Write a haiku about a database index."}
+{"prompt": "List five common causes of a slow web page and one fix for each."}
+{"messages": [{"role": "system", "content": "You are a concise assistant."}, {"role": "user", "content": "What does a load balancer do?"}], "max_tokens": 96}
+{"prompt": "Summarize how TCP congestion control reacts to packet loss."}
+{"prompt": "Translate 'the server is overloaded, please retry later' into French, German and Turkish."}
+{"messages": [{"role": "user", "content": "Give me a regular expression that matches an ISO 8601 date."}], "max_tokens": 64}
+{"prompt": "Describe a queue in terms a ten-year-old would understand."}
+{"prompt": "Write a short changelog entry for a release that fixes a memory leak."}
+{"prompt": "Why do percentiles describe latency better than averages?"}
+{"messages": [{"role": "system", "content": "Answer with a numbered list."}, {"role": "user", "content": "Steps to profile a slow Go program."}]}
+{"prompt": "Write a limerick about a cache miss."}
