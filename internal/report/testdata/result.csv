@@ -1,0 +1,13 @@
+stage,load,seq,scheduled_ms,send_lag_ms,ttft_ms,e2e_ms,tpot_ms,max_itl_ms,output_tokens,input_tokens,token_source,chunks,finish_reason,error,error_message
+0,concurrency=2,0,0,0,100,400,10,12,31,50,usage,31,length,,
+0,concurrency=2,1,100,2,200,600,20,20,21,70,usage,21,stop,,
+0,concurrency=2,2,200,0,300,500,,0,1,0,chunks,1,stop,,
+0,concurrency=2,3,300,0,,50,,0,0,0,chunks,0,stop,,
+0,concurrency=2,4,400,0,,5,,0,0,0,chunks,0,,http_500,HTTP 500: boom
+0,concurrency=2,5,500,0,,1,,0,0,0,chunks,0,,http_500,HTTP 500: second
+1,rate=4/s poisson,0,0,0,100,400,10,12,31,50,usage,31,length,,
+1,rate=4/s poisson,1,100,2,200,600,20,20,21,70,usage,21,stop,,
+1,rate=4/s poisson,2,200,0,300,500,,0,1,0,chunks,1,stop,,
+1,rate=4/s poisson,3,300,0,,50,,0,0,0,chunks,0,stop,,
+1,rate=4/s poisson,4,400,0,,5,,0,0,0,chunks,0,,http_500,HTTP 500: boom
+1,rate=4/s poisson,5,500,0,,1,,0,0,0,chunks,0,,http_500,HTTP 500: second

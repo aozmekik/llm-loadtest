@@ -108,6 +108,10 @@ linters:
       - linters:
           - gosec
         text: "G404"
+      # Long tests with many sequential assertions are not complex logic.
+      - path: _test\.go
+        linters:
+          - gocyclo
       # Tests build file paths and URLs from variables and use fake keys.
       - path: _test\.go
         linters:
