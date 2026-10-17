@@ -193,12 +193,20 @@ func formatChange(m *MetricDiff) string {
 	case math.IsNaN(ch):
 		return "n/a"
 	case m.Points:
-		s = fmt.Sprintf("%+.2f pp", ch)
+		s = fmt.Sprintf("%+.2f pp", positiveZero(math.Round(ch*100)/100))
 	default:
-		s = fmt.Sprintf("%+.1f%%", ch)
+		s = fmt.Sprintf("%+.1f%%", positiveZero(math.Round(ch*10)/10))
 	}
 	if m.Regression {
 		s = "**" + s + " regression**"
 	}
 	return s
+}
+
+// positiveZero maps -0 to 0 so that tiny decreases print as +0.0%.
+func positiveZero(v float64) float64 {
+	if v == 0 {
+		return 0
+	}
+	return v
 }

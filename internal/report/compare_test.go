@@ -133,6 +133,11 @@ func TestComparisonMarkdown(t *testing.T) {
 		}
 	}
 	buf.Reset()
+	tiny := report.Compare(result(closedStage(1, 1000, 100, 0)), result(closedStage(1, 999.9, 100, 0)), 0)
+	if err := tiny.WriteMarkdown(&buf, "a", "b"); err != nil || !strings.Contains(buf.String(), "| Req/s | 1000 | 1000 | +0.0% |") {
+		t.Errorf("a -0.01%% change should print as +0.0%%:\n%s", buf.String())
+	}
+	buf.Reset()
 	if err := report.Compare(base, result(), 0).WriteMarkdown(&buf, "a", "b"); err != nil || !strings.Contains(buf.String(), "No stage loads match") {
 		t.Errorf("unmatched comparison: %v\n%s", err, buf.String())
 	}
