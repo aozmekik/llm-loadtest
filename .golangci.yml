@@ -1,0 +1,118 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard
+  enable:
+    - asasalint
+    - bidichk
+    - bodyclose
+    - canonicalheader
+    - contextcheck
+    - copyloopvar
+    - durationcheck
+    - errchkjson
+    - errname
+    - errorlint
+    - exhaustive
+    - fatcontext
+    - forcetypeassert
+    - gocheckcompilerdirectives
+    - gochecknoinits
+    - gocritic
+    - gocyclo
+    - godot
+    - gosec
+    - intrange
+    - makezero
+    - mirror
+    - misspell
+    - modernize
+    - nakedret
+    - nilerr
+    - nilnesserr
+    - noctx
+    - nolintlint
+    - nosprintfhostport
+    - perfsprint
+    - prealloc
+    - predeclared
+    - reassign
+    - revive
+    - testableexamples
+    - thelper
+    - tparallel
+    - unconvert
+    - unparam
+    - usestdlibvars
+    - usetesting
+    - wastedassign
+    - whitespace
+  settings:
+    errcheck:
+      check-type-assertions: true
+    exhaustive:
+      default-signifies-exhaustive: true
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - performance
+        - style
+    gocyclo:
+      min-complexity: 25
+    govet:
+      enable-all: true
+      disable:
+        # Struct field order is chosen for readability, not padding.
+        - fieldalignment
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+    revive:
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+        - name: empty-block
+        - name: error-naming
+        - name: error-return
+        - name: error-strings
+        - name: errorf
+        - name: exported
+        - name: increment-decrement
+        - name: indent-error-flow
+        - name: package-comments
+        - name: range
+        - name: receiver-naming
+        - name: redefines-builtin-id
+        - name: superfluous-else
+        - name: time-naming
+        - name: unexported-return
+        - name: unreachable-code
+        - name: unused-parameter
+        - name: var-declaration
+        - name: var-naming
+  exclusions:
+    rules:
+      # math/rand drives workload generation (arrivals, prompts, mock
+      # latencies), where reproducible seeds matter; nothing here is secret.
+      - linters:
+          - gosec
+        text: "G404"
+      # Tests legitimately build file paths and URLs from variables.
+      - path: _test\.go
+        linters:
+          - gosec
+        text: "G(304|107|704)"
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/aozmekik/llm-loadtest

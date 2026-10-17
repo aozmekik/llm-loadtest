@@ -1,0 +1,29 @@
+# Build output
+/llm-loadtest
+/bin/
+/dist/
+*.exe
+*.test
+
+# Coverage and profiles
+*.out
+*.cov
+coverage.*
+*.pprof
+
+# Results written by local runs and the examples
+/results/
+/examples/out/
+
+# Go fuzzing corpus generated locally (seed corpus lives in testdata/fuzz)
+/**/testdata/fuzz/**/cache/
+
+# Editors and OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Secrets
+.env
+.env.*
