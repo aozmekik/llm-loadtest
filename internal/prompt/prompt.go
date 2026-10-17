@@ -123,15 +123,16 @@ func (d *Dataset) Prompt(i uint64) client.Request {
 // cache skip work and flatter the measured time to first token.
 const instruction = "\n\nContinue the list of words above. Write as many more words as you can."
 
-// instructionTokens approximates the length of instruction for common
-// byte-pair encodings.
-const instructionTokens = 16
+// instructionTokens is the length of instruction in the cl100k_base and
+// o200k_base encodings.
+const instructionTokens = 17
 
-// Synthetic generates distinct prompts of an approximate token length from
-// a vocabulary of common English words, most of which are a single token
-// in widely used tokenizers. Exact lengths depend on the model's tokenizer
-// and chat template; the server-reported prompt token count is the ground
-// truth.
+// Synthetic generates distinct prompts of a target token length from a
+// vocabulary of common English words. Every word is a single token in the
+// cl100k_base and o200k_base encodings, where the prompt text is exactly
+// the target length (verified with tiktoken; see the README). Other
+// tokenizers and the model's chat template change the count; the
+// server-reported prompt token count is the ground truth.
 type Synthetic struct {
 	inputTokens int
 	seed        uint64

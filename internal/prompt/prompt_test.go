@@ -122,10 +122,10 @@ func TestSynthetic(t *testing.T) {
 	if a.Messages[0].Role != "user" || a.MaxTokens != 0 {
 		t.Errorf("unexpected request shape %+v", a)
 	}
-	// 256 tokens minus the instruction's 16, at one word each.
+	// 256 tokens minus the instruction's 17, at one token per word.
 	body, _, _ := strings.Cut(a.Messages[0].Content, "\n\n")
-	if n := len(strings.Fields(body)); n != 240 {
-		t.Errorf("prompt has %d words before the instruction, want 240", n)
+	if n := len(strings.Fields(body)); n != 239 {
+		t.Errorf("prompt has %d words before the instruction, want 239", n)
 	}
 	other, _ := prompt.NewSynthetic(256, 8)
 	if other.Prompt(0).Messages[0].Content == a.Messages[0].Content {
