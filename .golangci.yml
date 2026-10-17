@@ -60,6 +60,10 @@ linters:
         - diagnostic
         - performance
         - style
+      disabled-checks:
+        # Constructors take their Config by value on purpose: callers keep
+        # ownership of their copy and the cost is paid once.
+        - hugeParam
     gocyclo:
       min-complexity: 25
     govet:
@@ -74,6 +78,8 @@ linters:
       rules:
         - name: blank-imports
         - name: context-as-argument
+          arguments:
+            - allowTypesBefore: "*testing.T"
         - name: context-keys-type
         - name: dot-imports
         - name: empty-block
