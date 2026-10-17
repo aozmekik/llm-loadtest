@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.15.0
+
+  test:
+    name: Test (Go ${{ matrix.go }}, ${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        go: [oldstable, stable]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ matrix.go }}
+      - name: Verify modules
+        run: go mod verify
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test -race -shuffle=on -count=1 ./...
+      - name: Build
+        run: go build ./...
+      - name: Run the examples
+        run: |
+          go run ./examples/library
+          DURATION=2s examples/demo.sh > /dev/null
+
+  extra:
+    name: Fuzz and cross-compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+      - name: Fuzz the SSE decoder
+        run: go test -run='^$' -fuzz=FuzzDecoder -fuzztime=60s ./sse
+      - name: Cross-compile release targets
+        run: |
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            GOOS="${target%/*}" GOARCH="${target#*/}" CGO_ENABLED=0 go build -o /dev/null ./cmd/llm-loadtest
+          done
+      - name: Check the GoReleaser config
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
+          args: check
