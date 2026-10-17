@@ -17,11 +17,13 @@ var ErrAccuracyMismatch = errors.New("stats: cannot merge sketches with differen
 // DDSketch (Masson, Rim and Lee, "DDSketch: A Fast and Fully-Mergeable
 // Quantile Sketch with Relative-Error Guarantees", VLDB 2019).
 //
-// Values are counted in logarithmically sized buckets. For a sketch with
-// relative accuracy a, Quantile(q) is within a factor (1 ± a) of the
-// sample element of 0-based rank floor(q*(n-1)). Memory grows with the
-// logarithm of the value range, not with the number of values, and Count,
-// Mean, Stddev, Min and Max are exact.
+// Values are counted in logarithmically sized buckets, so every element
+// can be recovered to within a factor (1 ± a) for relative accuracy a.
+// Quantile interpolates between the two closest ranks exactly as the exact
+// Quantile function does, so for non-negative data its estimate is within
+// a factor (1 ± a) of the exact interpolated quantile. Memory grows with
+// the logarithm of the value range, not with the number of values, and
+// Count, Mean, Stddev, Min and Max are exact.
 //
 // Values at or below 1e-9, including zero and negative values, are counted
 // in a dedicated zero bucket and estimated as zero (clamped to Min). The
@@ -108,8 +110,9 @@ func (s *Sketch) Merge(other *Sketch) error {
 }
 
 // Quantile returns an estimate of the q-quantile, 0 <= q <= 1, or NaN if the
-// sketch is empty. Quantile(0) and Quantile(1) return the exact minimum and
-// maximum.
+// sketch is empty. Like the exact Quantile function it interpolates
+// linearly between closest ranks (Hyndman and Fan definition 7).
+// Quantile(0) and Quantile(1) return the exact minimum and maximum.
 func (s *Sketch) Quantile(q float64) float64 {
 	if s.n == 0 {
 		return math.NaN()
@@ -120,14 +123,25 @@ func (s *Sketch) Quantile(q float64) float64 {
 	case q >= 1:
 		return s.max
 	}
-	rank := int(q * float64(s.n-1))
-	if rank < s.zeros {
+	h := q * float64(s.n-1)
+	lo := int(math.Floor(h))
+	frac := h - float64(lo)
+	vlo := s.valueAtRank(lo)
+	if frac == 0 || lo+1 >= s.n {
+		return vlo
+	}
+	return vlo + frac*(s.valueAtRank(lo+1)-vlo)
+}
+
+// valueAtRank estimates the element of 0-based rank r in sorted order.
+func (s *Sketch) valueAtRank(r int) float64 {
+	if r < s.zeros {
 		return s.clamp(0)
 	}
 	cumulative := s.zeros
 	for i, c := range s.bins {
 		cumulative += c
-		if cumulative > rank {
+		if cumulative > r {
 			return s.clamp(s.value(s.offset + i))
 		}
 	}

@@ -82,11 +82,6 @@ func summariesClose(a, b Summary, tol float64) bool {
 		approxEqual(a.P95, b.P95, tol) && approxEqual(a.P99, b.P99, tol)
 }
 
-// lowerQuantile is the element the sketch guarantees to approximate.
-func lowerQuantile(sorted []float64, q float64) float64 {
-	return sorted[int(q*float64(len(sorted)-1))]
-}
-
 func TestSketchRelativeErrorGuarantee(t *testing.T) {
 	t.Parallel()
 	rng := rand.New(rand.NewPCG(1, 2))
@@ -102,28 +97,26 @@ func TestSketchRelativeErrorGuarantee(t *testing.T) {
 			return 5 + rng.NormFloat64()
 		},
 	}
-	quantiles := []float64{0.01, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99, 0.999}
+	quantiles := []float64{0.001, 0.01, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99, 0.999}
 	for _, alpha := range []float64{0.01, 0.05} {
 		for name, gen := range distributions {
-			s := NewSketch(alpha)
-			values := make([]float64, 20_000)
-			for i := range values {
-				values[i] = gen()
-				s.Add(values[i])
-			}
-			slices.Sort(values)
-			for _, q := range quantiles {
-				exact := lowerQuantile(values, q)
-				got := s.Quantile(q)
-				if exact <= minIndexable {
-					if got != max(0, values[0]) {
-						t.Errorf("%s alpha=%v q=%v: got %v, want zero bucket", name, alpha, q, got)
-					}
-					continue
+			for _, n := range []int{2, 7, 100, 20_000} {
+				s := NewSketch(alpha)
+				values := make([]float64, n)
+				for i := range values {
+					values[i] = gen()
+					s.Add(values[i])
 				}
-				if relErr := math.Abs(got-exact) / exact; relErr > alpha*(1+1e-9) {
-					t.Errorf("%s alpha=%v q=%v: estimate %v, exact %v, relative error %.4f > %v",
-						name, alpha, q, got, exact, relErr, alpha)
+				slices.Sort(values)
+				for _, q := range quantiles {
+					// The estimate must be within alpha of the exact
+					// interpolated quantile that Summarize reports.
+					exact := Quantile(values, q)
+					got := s.Quantile(q)
+					if math.Abs(got-exact) > alpha*exact*(1+1e-9) {
+						t.Errorf("%s n=%d alpha=%v q=%v: estimate %v, exact %v, relative error %.4f > %v",
+							name, n, alpha, q, got, exact, math.Abs(got-exact)/exact, alpha)
+					}
 				}
 			}
 		}
