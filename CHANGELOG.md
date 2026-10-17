@@ -33,4 +33,5 @@ change between minor versions.
 - `llm-loadtest mock` and the `mock` package: an OpenAI-compatible server
   with configurable latency distributions, output lengths, slots and error
   injection.
-- The `sse` package: a spec-compliant streaming Server-Sent Events decoder.
+- The `sse` package: a streaming Server-Sent Events decoder following the
+  WHATWG parsing rules.

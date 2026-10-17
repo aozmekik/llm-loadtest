@@ -22,10 +22,10 @@ so a loopback `httptest.Server` cannot be used inside a bubble.
 
 1. **Real time with tolerances.** Simple; slow, flaky, and weak.
 2. **An injected `Clock` interface** in the scheduler and client. Exact,
-   but every timing call site in production code goes through an
+   but every timing call site in non-test code goes through an
    abstraction that exists for tests, and the mock server and HTTP stack
    would need it too.
-3. **`testing/synctest` plus an in-memory HTTP transport.** Production code
+3. **`testing/synctest` plus an in-memory HTTP transport.** Library code
    calls `time` directly; tests run the real client, load generator and
    mock server in a bubble, connected by an `http.RoundTripper` that calls
    the handler directly and streams the body through `io.Pipe`.
