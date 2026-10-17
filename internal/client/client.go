@@ -15,6 +15,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/aozmekik/llm-loadtest/sse"
@@ -108,12 +110,18 @@ type Response struct {
 	FinishReason string
 }
 
+// minSecretLen is the shortest configured value treated as a secret when
+// scrubbing error messages; shorter values are too likely to be ordinary
+// words.
+const minSecretLen = 8
+
 // Client sends chat-completion requests. It is safe for concurrent use.
 type Client struct {
 	cfg      Config
 	endpoint string
 	header   http.Header
 	http     *http.Client
+	secrets  []string // scrubbed from error messages, longest first
 }
 
 // New validates cfg and returns a Client.
@@ -149,6 +157,7 @@ func New(cfg Config) (*Client, error) {
 	if hc == nil {
 		hc = &http.Client{Transport: newTransport()}
 	}
+	secrets := collectSecrets(&cfg, u)
 	cfg.ExtraBody = maps.Clone(cfg.ExtraBody)
 	cfg.Headers = nil
 	return &Client{
@@ -156,7 +165,49 @@ func New(cfg Config) (*Client, error) {
 		endpoint: u.JoinPath("chat/completions").String(),
 		header:   header,
 		http:     hc,
+		secrets:  secrets,
 	}, nil
+}
+
+// collectSecrets lists configured values that must never appear in error
+// messages, even when a server echoes them back: the API key, header
+// values, and the credentials and query values of the base URL.
+func collectSecrets(cfg *Config, u *url.URL) []string {
+	var secrets []string
+	add := func(v string) {
+		if len(v) >= minSecretLen {
+			secrets = append(secrets, v)
+		}
+	}
+	add(cfg.APIKey)
+	for _, values := range cfg.Headers {
+		for _, v := range values {
+			add(v)
+			if _, token, ok := strings.Cut(v, " "); ok { // "Bearer <token>"
+				add(strings.TrimSpace(token))
+			}
+		}
+	}
+	for _, values := range u.Query() {
+		for _, v := range values {
+			add(v)
+		}
+	}
+	if u.User != nil {
+		add(u.User.Username())
+		if pw, ok := u.User.Password(); ok {
+			add(pw)
+		}
+	}
+	slices.SortFunc(secrets, func(a, b string) int { return len(b) - len(a) })
+	return slices.Compact(secrets)
+}
+
+func (c *Client) redact(msg string) string {
+	for _, s := range c.secrets {
+		msg = strings.ReplaceAll(msg, s, "[REDACTED]")
+	}
+	return msg
 }
 
 func newTransport() *http.Transport {
@@ -177,6 +228,15 @@ func newTransport() *http.Transport {
 // Response holds whatever was observed, even when the error is non-nil.
 // Every non-nil error is an *Error.
 func (c *Client) Stream(ctx context.Context, req Request) (Response, error) {
+	resp, err := c.stream(ctx, req)
+	if err != nil {
+		err.Message = c.redact(err.Message)
+		return resp, err
+	}
+	return resp, nil
+}
+
+func (c *Client) stream(ctx context.Context, req Request) (Response, *Error) {
 	var resp Response
 	payload, err := c.body(req)
 	if err != nil {
@@ -223,16 +283,16 @@ func (c *Client) Stream(ctx context.Context, req Request) (Response, error) {
 	if idle != nil {
 		body = &idleReader{r: body, timer: idle, timeout: c.cfg.IdleTimeout}
 	}
-	err = c.read(ctx, sse.NewDecoder(body), &resp)
+	readErr := c.read(ctx, sse.NewDecoder(body), &resp)
 	if !resp.UsageReported {
 		resp.OutputTokens = len(resp.Chunks)
 	}
-	if err == nil {
+	if readErr == nil {
 		drain := time.AfterFunc(drainTimeout, func() { cancel(errDrained) })
 		_, _ = io.Copy(io.Discard, io.LimitReader(httpResp.Body, maxErrorBody))
 		drain.Stop()
 	}
-	return resp, err
+	return resp, readErr
 }
 
 func (c *Client) body(req Request) ([]byte, error) {
@@ -255,7 +315,7 @@ func (c *Client) body(req Request) ([]byte, error) {
 
 // read consumes the event stream, filling resp. It returns nil once [DONE]
 // arrives, or at end of stream after a finish_reason was seen.
-func (c *Client) read(ctx context.Context, dec *sse.Decoder, resp *Response) error {
+func (c *Client) read(ctx context.Context, dec *sse.Decoder, resp *Response) *Error {
 	for {
 		ev, err := dec.Next()
 		now := time.Now()

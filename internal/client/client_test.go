@@ -494,3 +494,27 @@ func TestHTTPStatusClass(t *testing.T) {
 		t.Errorf("Error() = %q, Unwrap chain broken", e.Error())
 	}
 }
+
+func TestEchoedSecretsAreRedacted(t *testing.T) {
+	t.Parallel()
+	ts := serve(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "bad credentials: "+r.Header.Get("Authorization")+" "+r.Header.Get("X-Org-Token")+
+			" "+r.URL.RawQuery, http.StatusUnauthorized)
+	}))
+	c := newClient(t, ts.URL+"/v1?sig=query-secret-123", func(cfg *client.Config) {
+		cfg.Headers = http.Header{"X-Org-Token": {"Token org-secret-456"}, "X-Short": {"abc"}}
+	})
+	_, err := c.Stream(t.Context(), userMsg)
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	msg := err.Error()
+	for _, leaked := range []string{secret, "org-secret-456", "query-secret-123"} {
+		if strings.Contains(msg, leaked) {
+			t.Errorf("error message leaks %q: %s", leaked, msg)
+		}
+	}
+	if !strings.Contains(msg, "[REDACTED]") || !strings.Contains(msg, "bad credentials") {
+		t.Errorf("error message = %q, want the server text with secrets redacted", msg)
+	}
+}
