@@ -152,8 +152,30 @@ func TestRunOpenLoopWithDataset(t *testing.T) {
 	if !strings.Contains(r.Config.Prompts, "prompts.jsonl (2 prompts, shuffled") || r.Config.MaxInFlight != 1024 {
 		t.Errorf("config = %+v", r.Config)
 	}
+	if len(r.Stages[0].Records) != 10 {
+		t.Errorf("JSON has %d records, want 10", len(r.Stages[0].Records))
+	}
 	if got := r.Stages[0].OutputTokens.Min; got != 4 {
 		t.Errorf("min output tokens = %v, want 4 from the per-row max_tokens", got)
+	}
+}
+
+func TestJSONWithoutRecords(t *testing.T) {
+	t.Parallel()
+	ts := mockServer(t, fast)
+	dir := t.TempDir()
+	out := invoke(t.Context(), t, nil, "run", "--quiet", "--base-url", ts.URL+"/v1", "--model", "m",
+		"--requests", "4", "--json-records=false", "--out", filepath.Join(dir, "r.json"), "--out", filepath.Join(dir, "r.csv"))
+	if out.code != 0 {
+		t.Fatalf("exit %d\n%s", out.code, out.stderr)
+	}
+	r := readResult(t, filepath.Join(dir, "r.json"))
+	if len(r.Stages) != 1 || r.Stages[0].Records != nil || r.Stages[0].Succeeded != 4 {
+		t.Errorf("summary JSON = %+v, want aggregates without records", r.Stages)
+	}
+	csvData, err := os.ReadFile(filepath.Join(dir, "r.csv"))
+	if err != nil || strings.Count(string(csvData), "\n") != 5 {
+		t.Errorf("CSV must keep the 4 records: %v\n%s", err, csvData)
 	}
 }
 

@@ -44,6 +44,7 @@ type runOptions struct {
 	timeout, idleTimeout      time.Duration
 	seed                      uint64
 	outs                      stringList
+	jsonRecords               bool
 	quiet                     bool
 }
 
@@ -70,6 +71,7 @@ func (o *runOptions) register(fs *flag.FlagSet) {
 	fs.DurationVar(&o.idleTimeout, "idle-timeout", 0, "fail a request after this long without receiving data; 0 disables it")
 	fs.Uint64Var(&o.seed, "seed", 1, "seed for synthetic prompts, shuffling and Poisson arrivals")
 	fs.Var(&o.outs, "out", "write results to a `file`: .json, .csv (one row per request) or .md (repeatable)")
+	fs.BoolVar(&o.jsonRecords, "json-records", true, "include one record per request in JSON output (CSV always has them)")
 	fs.BoolVar(&o.quiet, "quiet", false, "do not print progress")
 }
 
@@ -132,7 +134,7 @@ func (o *runOptions) plan(env *Env) (*runPlan, error) {
 	if err != nil {
 		return nil, err
 	}
-	if p.outputs, err = parseOutputs(o.outs); err != nil {
+	if p.outputs, err = parseOutputs(o.outs, o.jsonRecords); err != nil {
 		return nil, err
 	}
 
@@ -218,13 +220,16 @@ func (o *runOptions) buildStages(p *runPlan) error {
 	return nil
 }
 
-func parseOutputs(paths []string) ([]output, error) {
+func parseOutputs(paths []string, jsonRecords bool) ([]output, error) {
 	outs := make([]output, 0, len(paths))
 	for _, path := range paths {
 		var write func(io.Writer, *report.Result) error
 		switch strings.ToLower(filepath.Ext(path)) {
 		case ".json":
 			write = report.WriteJSON
+			if !jsonRecords {
+				write = writeJSONSummary
+			}
 		case ".csv":
 			write = report.WriteCSV
 		case ".md":
@@ -239,6 +244,17 @@ func parseOutputs(paths []string) ([]output, error) {
 		outs = append(outs, output{path: path, write: write})
 	}
 	return outs, nil
+}
+
+// writeJSONSummary writes the result without per-request records, which
+// dominate the file size of long or high-throughput runs.
+func writeJSONSummary(w io.Writer, r *report.Result) error {
+	summary := *r
+	summary.Stages = slices.Clone(r.Stages)
+	for i := range summary.Stages {
+		summary.Stages[i].Records = nil
+	}
+	return report.WriteJSON(w, &summary)
 }
 
 func headerNames(h http.Header) []string {
