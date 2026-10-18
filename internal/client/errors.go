@@ -81,7 +81,7 @@ type chunk struct {
 func (c *chunk) hasContent() bool {
 	for _, choice := range c.Choices {
 		d := choice.Delta
-		if d.Content != "" || d.ReasoningContent != "" || d.Reasoning != "" || !isNullJSON(d.ToolCalls) {
+		if d.Content != "" || d.ReasoningContent != "" || d.Reasoning != "" || !isEmptyJSON(d.ToolCalls) {
 			return true
 		}
 	}
@@ -97,6 +97,16 @@ func (c *chunk) isError() bool {
 func isNullJSON(raw json.RawMessage) bool {
 	raw = bytes.TrimSpace(raw)
 	return len(raw) == 0 || bytes.Equal(raw, []byte("null"))
+}
+
+// isEmptyJSON reports whether raw is absent, null or an empty array, as in
+// a role-announcing chunk with "tool_calls": [].
+func isEmptyJSON(raw json.RawMessage) bool {
+	raw = bytes.TrimSpace(raw)
+	if isNullJSON(raw) {
+		return true
+	}
+	return len(raw) >= 2 && raw[0] == '[' && raw[len(raw)-1] == ']' && len(bytes.TrimSpace(raw[1:len(raw)-1])) == 0
 }
 
 // maxMessageLen bounds error messages copied from server responses.

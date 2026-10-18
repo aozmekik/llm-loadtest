@@ -201,6 +201,15 @@ func TestStreamParsing(t *testing.T) {
 			wantChunks: 1, wantTokens: 1, wantFinish: "stop",
 		},
 		{
+			name: "empty tool_calls in the role chunk is not output",
+			parts: []string{
+				"data: {\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[ ]}}]}\n\n",
+				"data: {\"choices\":[{\"delta\":{\"content\":\"a\"},\"finish_reason\":\"stop\"}]}\n\n",
+				"data: [DONE]\n\n",
+			},
+			wantChunks: 1, wantTokens: 1, wantFinish: "stop",
+		},
+		{
 			name: "named events ignored",
 			parts: []string{
 				"event: ping\ndata: {}\n\n",
