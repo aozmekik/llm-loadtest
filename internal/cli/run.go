@@ -73,7 +73,7 @@ func (o *runOptions) register(fs *flag.FlagSet) {
 		"length of synthetic prompts when no --dataset is given, at least 18 (exact for the cl100k_base and o200k_base encodings)")
 	fs.IntVar(&o.maxTokens, "max-tokens", 256, "token limit of each request; 0 omits the field")
 	fs.StringVar(&o.maxTokensField, "max-tokens-field", client.FieldMaxTokens,
-		"request `field` for the token limit: max_tokens, or max_completion_tokens for OpenAI reasoning models")
+		"request `field` for the token limit: max_tokens, or max_completion_tokens for OpenAI o-series models")
 	fs.Var(&o.temperature, "temperature", "sampling temperature (default: the server's)")
 	fs.StringVar(&o.extraBody, "extra-body", "", "JSON object merged into every request body, e.g. '{\"ignore_eos\": true}'")
 	fs.BoolVar(&o.includeUsage, "include-usage", true, "ask for exact token counts with stream_options.include_usage")

@@ -68,7 +68,7 @@ type Config struct {
 	MaxTokens int
 	// MaxTokensField names the request field that carries the token limit:
 	// FieldMaxTokens (the default when empty) or FieldMaxCompletionTokens,
-	// which OpenAI's reasoning models require.
+	// which OpenAI's o-series reasoning models require.
 	MaxTokensField string
 	// Temperature is sent as "temperature" when non-nil.
 	Temperature *float64
@@ -97,7 +97,7 @@ const (
 	// FieldMaxTokens is the token limit field most servers accept.
 	FieldMaxTokens = "max_tokens"
 	// FieldMaxCompletionTokens is the newer OpenAI field, required by its
-	// reasoning models.
+	// o-series reasoning models.
 	FieldMaxCompletionTokens = "max_completion_tokens"
 )
 
