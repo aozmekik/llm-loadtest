@@ -81,7 +81,10 @@ type Config struct {
 	// including while waiting for the response headers. Zero disables it.
 	IdleTimeout time.Duration
 	// HTTPClient sends the requests. When nil, a client tuned for many
-	// concurrent streams (large idle pool, no compression) is used.
+	// concurrent streams (large idle pool, no compression) is used. That
+	// client does not follow redirects: a 3xx response fails the request
+	// with class "http_3xx", because following it would turn the POST into
+	// a GET (301 to 303) or send custom key headers to another host.
 	HTTPClient *http.Client
 }
 
@@ -160,7 +163,11 @@ func New(cfg Config) (*Client, error) {
 
 	hc := cfg.HTTPClient
 	if hc == nil {
-		hc = &http.Client{Transport: newTransport()}
+		hc = &http.Client{
+			Transport: newTransport(),
+			// Report a redirect instead of following it; see Config.HTTPClient.
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		}
 	}
 	secrets := collectSecrets(&cfg, u)
 	cfg.ExtraBody = maps.Clone(cfg.ExtraBody)
@@ -415,12 +422,15 @@ func (c *Client) transportError(ctx context.Context, err error) *Error {
 	return &Error{Class: ClassConnection, Message: err.Error(), Err: err}
 }
 
-// statusError builds the error for a non-200 response.
+// statusError builds the error for a non-200 response. Its message is not
+// yet redacted or truncated; Stream does both.
 func statusError(resp *http.Response) *Error {
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
-	msg := errorMessage(body)
-	if msg == "" {
-		msg = http.StatusText(resp.StatusCode)
+	var msg string
+	if loc := resp.Header.Get("Location"); resp.StatusCode/100 == 3 && loc != "" {
+		msg = "redirect to " + RedactURL(loc) + " not followed"
+	} else {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
+		msg = cmp.Or(errorMessage(body), http.StatusText(resp.StatusCode))
 	}
 	return &Error{
 		Class:      HTTPStatusClass(resp.StatusCode),

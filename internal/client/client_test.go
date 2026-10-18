@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -450,6 +451,34 @@ func TestTimingOverLoopback(t *testing.T) {
 	}
 	if med := meanITLs[runs/2]; med < itl-time.Millisecond || med > itl+2*time.Millisecond {
 		t.Errorf("median of per-request mean ITL = %v, want %v within -1ms/+2ms", med, itl)
+	}
+}
+
+func TestRedirectsAreNotFollowed(t *testing.T) {
+	t.Parallel()
+	var followed atomic.Bool
+	target := serve(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		followed.Store(true)
+		streamParts("data: [DONE]\n\n")(w, r)
+	}))
+	for _, status := range []int{http.StatusFound, http.StatusTemporaryRedirect} {
+		ts := serve(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, target.URL+"/v1/chat/completions?sig=redirect-secret", status)
+		}))
+		c := newClient(t, ts.URL, func(cfg *client.Config) {
+			cfg.Headers = http.Header{"Api-Key": {"azure-style-secret-key"}}
+		})
+		_, err := c.Stream(t.Context(), userMsg)
+		var cerr *client.Error
+		if !errors.As(err, &cerr) || cerr.Class != client.HTTPStatusClass(status) || !strings.Contains(cerr.Message, "not followed") {
+			t.Errorf("HTTP %d: error = %v, want class %s mentioning the redirect", status, err, client.HTTPStatusClass(status))
+		}
+		if err != nil && strings.Contains(err.Error(), "redirect-secret") {
+			t.Errorf("HTTP %d: error repeats the Location query: %v", status, err)
+		}
+	}
+	if followed.Load() {
+		t.Error("the client followed a redirect and sent the request to another server")
 	}
 }
 
