@@ -144,6 +144,13 @@ func countDistVar(fs *flag.FlagSet, p *mock.Dist[int], name string, def mock.Dis
 	fs.Var(distFlag[int]{d: p, parse: mock.ParseCountDist}, name, usage)
 }
 
+// isSet reports whether the named flag was given on the command line.
+func isSet(fs *flag.FlagSet, name string) bool {
+	set := false
+	fs.Visit(func(f *flag.Flag) { set = set || f.Name == name })
+	return set
+}
+
 // parseInterleaved parses flags that may appear before, between or after
 // positional arguments, which the flag package alone does not allow.
 func parseInterleaved(fs *flag.FlagSet, args []string) ([]string, error) {

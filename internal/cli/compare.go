@@ -62,13 +62,6 @@ func compareCommand(args []string, env *Env) int {
 	return exitOK
 }
 
-// isSet reports whether the named flag was given on the command line.
-func isSet(fs *flag.FlagSet, name string) bool {
-	set := false
-	fs.Visit(func(f *flag.Flag) { set = set || f.Name == name })
-	return set
-}
-
 func readResult(path string) (*report.Result, error) {
 	f, err := os.Open(path) //nolint:gosec // The path is a result file the user named.
 	if err != nil {

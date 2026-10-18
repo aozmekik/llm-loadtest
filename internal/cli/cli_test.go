@@ -251,6 +251,37 @@ func TestSecretsAreNeverWritten(t *testing.T) {
 	}
 }
 
+// TestDefaultKeyIsNotSentToOtherHosts runs with OPENAI_API_KEY set and no
+// --api-key-env against a local server, which must not receive the key.
+func TestDefaultKeyIsNotSentToOtherHosts(t *testing.T) {
+	t.Parallel()
+	inner, err := mock.New(fast)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var auth []string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		auth = append(auth, r.Header.Get("Authorization"))
+		mu.Unlock()
+		inner.ServeHTTP(w, r)
+	}))
+	t.Cleanup(ts.Close)
+	out := invoke(t.Context(), t, map[string]string{"OPENAI_API_KEY": "sk-real-openai-key"},
+		"run", "--quiet", "--base-url", ts.URL+"/v1", "--model", "m", "--requests", "2")
+	if out.code != 0 {
+		t.Fatalf("exit %d\n%s", out.code, out.stderr)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	for _, a := range auth {
+		if a != "" {
+			t.Errorf("a local server received Authorization %q from the default variable", a)
+		}
+	}
+}
+
 func TestRunFailures(t *testing.T) {
 	t.Parallel()
 	failing := mockServer(t, mock.Config{ErrorRate: 1, ErrorStatus: 404})

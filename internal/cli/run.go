@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -24,35 +26,46 @@ import (
 // defaultStageDuration applies when neither --duration nor --requests is set.
 const defaultStageDuration = 30 * time.Second
 
+// The API key variable read when --api-key-env is not given, and the only
+// host it is sent to.
+const (
+	defaultKeyVar = "OPENAI_API_KEY"
+	openAIHost    = "api.openai.com"
+)
+
 type runOptions struct {
-	baseURL, model, apiKeyEnv string
-	headers                   headerList
-	dataset                   string
-	shuffle                   bool
-	inputTokens               int
-	maxTokens                 int
-	maxTokensField            string
-	temperature               optionalFloat
-	extraBody                 string
-	includeUsage              bool
-	concurrency               intList
-	rates                     floatList
-	arrival                   string
-	maxInFlight               int
-	duration                  time.Duration
-	requests                  int
-	warmup                    int
-	timeout, idleTimeout      time.Duration
-	seed                      uint64
-	outs                      stringList
-	jsonRecords               bool
-	quiet                     bool
+	baseURL, model       string
+	apiKeyEnv            string
+	apiKeyEnvSet         bool // --api-key-env was given, possibly empty
+	headers              headerList
+	dataset              string
+	shuffle              bool
+	inputTokens          int
+	maxTokens            int
+	maxTokensField       string
+	temperature          optionalFloat
+	extraBody            string
+	includeUsage         bool
+	concurrency          intList
+	rates                floatList
+	arrival              string
+	maxInFlight          int
+	duration             time.Duration
+	requests             int
+	warmup               int
+	timeout, idleTimeout time.Duration
+	seed                 uint64
+	outs                 stringList
+	jsonRecords          bool
+	quiet                bool
 }
 
 func (o *runOptions) register(fs *flag.FlagSet) {
 	fs.StringVar(&o.baseURL, "base-url", "", "API root of the server, e.g. http://localhost:8000/v1 (required)")
 	fs.StringVar(&o.model, "model", "", "model name sent with each request (required)")
-	fs.StringVar(&o.apiKeyEnv, "api-key-env", "OPENAI_API_KEY", "`name` of the environment variable holding the API key; never printed or saved")
+	fs.StringVar(&o.apiKeyEnv, "api-key-env", "",
+		"`name` of the environment variable whose value is sent to --base-url as a Bearer token, never printed or saved\n"+
+			"(default: OPENAI_API_KEY, sent only to "+openAIHost+"; an empty name sends no key)")
 	fs.Var(&o.headers, "header", "extra request `header` \"Name: value\" (repeatable); only names are saved")
 	fs.StringVar(&o.dataset, "dataset", "", "JSONL `file` of prompts, one {\"prompt\": ...} or {\"messages\": [...]} per line")
 	fs.BoolVar(&o.shuffle, "shuffle", false, "shuffle the dataset, seeded by --seed")
@@ -92,6 +105,7 @@ type runPlan struct {
 	stages  []loadgen.Stage
 	outputs []output
 	report  report.Config
+	notes   []string // printed to stderr before the run
 }
 
 // plan validates the options and resolves them into a runPlan.
@@ -113,10 +127,13 @@ func (o *runOptions) plan(env *Env) (*runPlan, error) {
 			return nil, errors.New("--extra-body must be a JSON object")
 		}
 	}
+	u, _ := url.Parse(o.baseURL) // client.New reports a bad URL
+	keyVar := o.apiKeyVar(u)
 	apiKey := ""
-	if o.apiKeyEnv != "" {
-		apiKey = env.Getenv(o.apiKeyEnv)
+	if keyVar != "" {
+		apiKey = env.Getenv(keyVar)
 	}
+	p.notes = keyNotes(u, keyVar, apiKey)
 	p.client = client.Config{
 		BaseURL:        o.baseURL,
 		Model:          o.model,
@@ -172,6 +189,45 @@ func (o *runOptions) plan(env *Env) (*runPlan, error) {
 		p.report.MaxInFlight = o.maxInFlight
 	}
 	return p, nil
+}
+
+// apiKeyVar returns the environment variable that holds the API key: the
+// one named by --api-key-env, or by default OPENAI_API_KEY when the base
+// URL is OpenAI's API. Other servers get a key only when one is named, so
+// an OpenAI key in the environment is never sent to a local engine or a
+// third-party endpoint by accident.
+func (o *runOptions) apiKeyVar(u *url.URL) string {
+	if o.apiKeyEnvSet {
+		return o.apiKeyEnv
+	}
+	if u != nil && strings.EqualFold(u.Hostname(), openAIHost) {
+		return defaultKeyVar
+	}
+	return ""
+}
+
+// keyNotes says where the API key goes, and warns when the named variable
+// is empty or when the key would cross the network without TLS.
+func keyNotes(u *url.URL, keyVar, apiKey string) []string {
+	switch {
+	case u == nil:
+		return nil
+	case keyVar != "" && apiKey == "":
+		return []string{fmt.Sprintf("warning: $%s is empty or unset; no API key is sent", keyVar)}
+	case apiKey != "" && u.Scheme == "http" && !isLoopback(u.Hostname()):
+		return []string{fmt.Sprintf("warning: the API key from $%s is sent unencrypted (http) to %s", keyVar, u.Host)}
+	case apiKey != "":
+		return []string{fmt.Sprintf("sending the API key from $%s to %s", keyVar, u.Host)}
+	}
+	return nil
+}
+
+func isLoopback(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func (o *runOptions) loadPrompts(p *runPlan) (string, error) {
@@ -288,6 +344,7 @@ func runCommand(ctx context.Context, args []string, env *Env) int {
 	if fs.NArg() > 0 {
 		return usageError(env, "run", fmt.Errorf("unexpected argument %q", fs.Arg(0)))
 	}
+	o.apiKeyEnvSet = isSet(fs, "api-key-env")
 	p, err := o.plan(env)
 	if err != nil {
 		return usageError(env, "run", err)
@@ -295,6 +352,9 @@ func runCommand(ctx context.Context, args []string, env *Env) int {
 	c, err := client.New(p.client)
 	if err != nil {
 		return usageError(env, "run", err)
+	}
+	for _, note := range p.notes {
+		_, _ = fmt.Fprintln(env.Stderr, note)
 	}
 
 	printer := &progressPrinter{w: env.Stderr, tty: env.StderrIsTerminal}
