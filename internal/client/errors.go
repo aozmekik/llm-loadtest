@@ -41,8 +41,12 @@ type Error struct {
 	Class Class
 	// StatusCode is the HTTP status for HTTP errors, otherwise zero.
 	StatusCode int
-	// Message is a human-readable description. It never contains the API
-	// key or the request URL.
+	// Message is a human-readable description of at most about 300 bytes.
+	// It never contains the request URL. Configured secrets are replaced
+	// with "[REDACTED]", even when the server echoes them: the API key and
+	// the base URL's password whatever their length, and header values,
+	// the URL's username and query values of 8 bytes or more. A server that
+	// echoes only part of a secret is not caught.
 	Message string
 	// Err is the underlying error, if any.
 	Err error
@@ -99,7 +103,9 @@ func isNullJSON(raw json.RawMessage) bool {
 const maxMessageLen = 300
 
 // errorMessage extracts a readable message from an error body in any of the
-// shapes OpenAI-compatible servers use, falling back to the raw text.
+// shapes OpenAI-compatible servers use, falling back to the raw text. The
+// result is neither redacted nor truncated; Client.Stream does both, in
+// that order.
 func errorMessage(body []byte) string {
 	var shape struct {
 		Error   json.RawMessage `json:"error"`
@@ -113,18 +119,20 @@ func errorMessage(body []byte) string {
 		var text string
 		switch {
 		case json.Unmarshal(shape.Error, &nested) == nil && nested.Message != "":
-			return truncate(nested.Message)
+			return nested.Message
 		case json.Unmarshal(shape.Error, &text) == nil && text != "":
-			return truncate(text)
+			return text
 		case shape.Message != "":
-			return truncate(shape.Message)
+			return shape.Message
 		case json.Unmarshal(shape.Detail, &text) == nil && text != "":
-			return truncate(text)
+			return text
 		}
 	}
-	return truncate(strings.TrimSpace(string(body)))
+	return strings.TrimSpace(string(body))
 }
 
+// truncate collapses whitespace runs to single spaces and cuts s to about
+// maxMessageLen bytes on a UTF-8 boundary.
 func truncate(s string) string {
 	s = strings.Join(strings.Fields(s), " ")
 	if len(s) <= maxMessageLen {

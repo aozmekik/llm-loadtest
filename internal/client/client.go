@@ -110,9 +110,10 @@ type Response struct {
 	FinishReason string
 }
 
-// minSecretLen is the shortest configured value treated as a secret when
-// scrubbing error messages; shorter values are too likely to be ordinary
-// words.
+// minSecretLen is the shortest header value, URL username or query value
+// treated as a secret when scrubbing error messages; shorter values are too
+// likely to be ordinary words. The API key and the URL password are
+// scrubbed whatever their length.
 const minSecretLen = 8
 
 // Client sends chat-completion requests. It is safe for concurrent use.
@@ -128,6 +129,10 @@ type Client struct {
 func New(cfg Config) (*Client, error) {
 	u, err := url.Parse(cfg.BaseURL)
 	if err != nil {
+		// *url.Error repeats the whole URL, credentials included.
+		if ue, ok := errors.AsType[*url.Error](err); ok {
+			err = ue.Err
+		}
 		return nil, fmt.Errorf("invalid base URL: %w", err)
 	}
 	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
@@ -171,35 +176,47 @@ func New(cfg Config) (*Client, error) {
 
 // collectSecrets lists configured values that must never appear in error
 // messages, even when a server echoes them back: the API key, header
-// values, and the credentials and query values of the base URL.
+// values, and the credentials and query values of the base URL. Each is
+// listed as configured and in its query- and path-escaped forms, and query
+// values also as they appear in the raw query string, since servers tend to
+// echo the URL they received.
 func collectSecrets(cfg *Config, u *url.URL) []string {
 	var secrets []string
-	add := func(v string) {
-		if len(v) >= minSecretLen {
-			secrets = append(secrets, v)
+	add := func(v string, always bool) {
+		if v == "" || (!always && len(v) < minSecretLen) {
+			return
 		}
+		secrets = append(secrets, v, url.QueryEscape(v), url.PathEscape(v))
 	}
-	add(cfg.APIKey)
+	add(cfg.APIKey, true)
 	for _, values := range cfg.Headers {
 		for _, v := range values {
-			add(v)
+			add(v, false)
 			if _, token, ok := strings.Cut(v, " "); ok { // "Bearer <token>"
-				add(strings.TrimSpace(token))
+				add(strings.TrimSpace(token), false)
 			}
 		}
 	}
 	for _, values := range u.Query() {
 		for _, v := range values {
-			add(v)
+			add(v, false)
+		}
+	}
+	for pair := range strings.SplitSeq(u.RawQuery, "&") {
+		if _, raw, ok := strings.Cut(pair, "="); ok {
+			add(raw, false)
 		}
 	}
 	if u.User != nil {
-		add(u.User.Username())
+		add(u.User.Username(), false)
 		if pw, ok := u.User.Password(); ok {
-			add(pw)
+			add(pw, true)
 		}
 	}
-	slices.SortFunc(secrets, func(a, b string) int { return len(b) - len(a) })
+	// Longest first, so that a value containing another is replaced whole.
+	slices.SortFunc(secrets, func(a, b string) int {
+		return cmp.Or(cmp.Compare(len(b), len(a)), strings.Compare(a, b))
+	})
 	return slices.Compact(secrets)
 }
 
@@ -230,7 +247,9 @@ func newTransport() *http.Transport {
 func (c *Client) Stream(ctx context.Context, req Request) (Response, error) {
 	resp, err := c.stream(ctx, req)
 	if err != nil {
-		err.Message = c.redact(err.Message)
+		// Redact before shortening: a secret cut in two by the truncation
+		// would no longer match.
+		err.Message = truncate(c.redact(err.Message))
 		return resp, err
 	}
 	return resp, nil

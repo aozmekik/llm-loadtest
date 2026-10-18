@@ -469,6 +469,16 @@ func TestNewValidation(t *testing.T) {
 	}
 }
 
+// TestInvalidURLIsNotRepeated checks that a URL that fails to parse is not
+// repeated in the error, since it may hold a password.
+func TestInvalidURLIsNotRepeated(t *testing.T) {
+	t.Parallel()
+	_, err := client.New(client.Config{BaseURL: "https://user:hunter2-secret@api.example.com/v1/%zz", Model: "m"})
+	if err == nil || strings.Contains(err.Error(), "hunter2") || !strings.Contains(err.Error(), "invalid URL escape") {
+		t.Errorf("error = %v, want the parse problem without the URL", err)
+	}
+}
+
 func TestRedactURL(t *testing.T) {
 	t.Parallel()
 	tests := map[string]string{
@@ -499,9 +509,9 @@ func TestEchoedSecretsAreRedacted(t *testing.T) {
 	t.Parallel()
 	ts := serve(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad credentials: "+r.Header.Get("Authorization")+" "+r.Header.Get("X-Org-Token")+
-			" "+r.URL.RawQuery, http.StatusUnauthorized)
+			" "+r.Header.Get("X-Short")+" "+r.URL.RawQuery, http.StatusUnauthorized)
 	}))
-	c := newClient(t, ts.URL+"/v1?sig=query-secret-123", func(cfg *client.Config) {
+	c := newClient(t, ts.URL+"/v1?sig=query-secret-123&b64=abc%2Bdef%2Fghi%3Djkl", func(cfg *client.Config) {
 		cfg.Headers = http.Header{"X-Org-Token": {"Token org-secret-456"}, "X-Short": {"abc"}}
 	})
 	_, err := c.Stream(t.Context(), userMsg)
@@ -509,12 +519,52 @@ func TestEchoedSecretsAreRedacted(t *testing.T) {
 		t.Fatal("expected an error")
 	}
 	msg := err.Error()
-	for _, leaked := range []string{secret, "org-secret-456", "query-secret-123"} {
+	for _, leaked := range []string{secret, "org-secret-456", "query-secret-123", "abc+def/ghi=jkl", "abc%2Bdef"} {
 		if strings.Contains(msg, leaked) {
 			t.Errorf("error message leaks %q: %s", leaked, msg)
 		}
 	}
-	if !strings.Contains(msg, "[REDACTED]") || !strings.Contains(msg, "bad credentials") {
+	// Short header values are not treated as secrets: they are usually
+	// ordinary words, and scrubbing them would garble messages.
+	if !strings.Contains(msg, "[REDACTED]") || !strings.Contains(msg, "bad credentials") || !strings.Contains(msg, " abc ") {
 		t.Errorf("error message = %q, want the server text with secrets redacted", msg)
+	}
+}
+
+// TestSecretAcrossTruncationIsRedacted puts the echoed key where the
+// 300-byte message limit cuts it: redaction must happen before truncation.
+func TestSecretAcrossTruncationIsRedacted(t *testing.T) {
+	t.Parallel()
+	for _, pad := range []int{260, 270, 285, 290, 299} {
+		ts := serve(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			body, _ := json.Marshal(map[string]any{"error": map[string]string{
+				"message": strings.Repeat("x", pad) + " " + r.Header.Get("Authorization"),
+			}})
+			_, _ = w.Write(body)
+		}))
+		_, err := newClient(t, ts.URL, nil).Stream(t.Context(), userMsg)
+		if err == nil {
+			t.Fatal("expected an error")
+		}
+		// Any 4-byte piece of the key would be a leak.
+		for i := 0; i+4 <= len(secret); i++ {
+			if strings.Contains(err.Error(), secret[i:i+4]) {
+				t.Errorf("padding %d: message leaks %q of the key: ...%s", pad, secret[i:i+4], err.Error()[max(0, len(err.Error())-40):])
+				break
+			}
+		}
+	}
+}
+
+func TestShortAPIKeyIsRedacted(t *testing.T) {
+	t.Parallel()
+	ts := serve(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "unknown key "+r.Header.Get("Authorization"), http.StatusUnauthorized)
+	}))
+	_, err := newClient(t, ts.URL, func(cfg *client.Config) { cfg.APIKey = "k3y" }).Stream(t.Context(), userMsg)
+	if err == nil || strings.Contains(err.Error(), "k3y") || !strings.Contains(err.Error(), "Bearer [REDACTED]") {
+		t.Errorf("error = %v, want the 3-byte API key redacted", err)
 	}
 }
