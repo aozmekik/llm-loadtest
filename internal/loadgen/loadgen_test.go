@@ -271,6 +271,30 @@ func TestMaxInFlightKeepsLatencyHonest(t *testing.T) {
 	})
 }
 
+// TestOpenLoopSendsBacklogAfterDuration pins down a documented trade-off:
+// arrivals scheduled within the duration but held back by MaxInFlight are
+// still sent, and measured from their scheduled start, so the stage
+// outlasts its duration instead of dropping them.
+func TestOpenLoopSendsBacklogAfterDuration(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		r := newRunner(t, loadgen.Config{Streamer: &recordingStreamer{latency: time.Second}, MaxInFlight: 1})
+		res := run(t, r, loadgen.Stage{
+			Load:     loadgen.Load{Mode: loadgen.Open, Rate: 10, Arrival: loadgen.Constant},
+			Duration: time.Second,
+		})
+		// Arrivals at 0, 100, ..., 900ms, sent one per second: arrival k
+		// waits 900k ms.
+		lags := field(res.Records, func(r loadgen.Record) time.Duration { return r.SendLag })
+		if want := durations(0, 900, 1800, 2700, 3600, 4500, 5400, 6300, 7200, 8100); !slices.Equal(lags, want) {
+			t.Errorf("send lag = %v, want %v", lags, want)
+		}
+		if res.Elapsed != 10*time.Second {
+			t.Errorf("Elapsed = %v, want 10s for a 1s stage", res.Elapsed)
+		}
+	})
+}
+
 func TestPoissonArrivals(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
