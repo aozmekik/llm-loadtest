@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/aozmekik/llm-loadtest/mock"
@@ -63,8 +64,15 @@ func mockCommand(ctx context.Context, args []string, env *Env) int {
 		return failure(env, "mock", err)
 	}
 	hs := &http.Server{Handler: srv, ReadHeaderTimeout: 10 * time.Second}
-	_, _ = fmt.Fprintf(env.Stderr, "mock: serving http://%s/v1 (ttft %s, itl %s, output tokens %s, slots %d)\n",
-		ln.Addr(), cfg.TTFT, cfg.ITL, cfg.OutputTokens, cfg.Slots)
+	outputTokens, slots := cfg.OutputTokens.String(), strconv.Itoa(cfg.Slots)
+	if outputTokens == "0" {
+		outputTokens = "max_tokens"
+	}
+	if cfg.Slots == 0 {
+		slots = "unlimited"
+	}
+	_, _ = fmt.Fprintf(env.Stderr, "mock: serving http://%s/v1 (ttft %s, itl %s, output tokens %s, slots %s)\n",
+		ln.Addr(), cfg.TTFT, cfg.ITL, outputTokens, slots)
 
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- hs.Serve(ln) }()

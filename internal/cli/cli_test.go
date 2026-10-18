@@ -475,6 +475,9 @@ func TestMockCommand(t *testing.T) {
 	if baseURL == "" {
 		t.Fatalf("mock did not start:\n%s", stderr.String())
 	}
+	if !strings.Contains(stderr.String(), "output tokens 3, slots unlimited)") {
+		t.Errorf("startup line: %s", stderr.String())
+	}
 	out := invoke(t.Context(), t, nil, "run", "--quiet", "--base-url", baseURL, "--model", "m", "--requests", "2")
 	if out.code != 0 || !strings.Contains(out.stdout, "| concurrency=1 | 2 | 0 |") {
 		t.Errorf("run against mock command: exit %d\n%s%s", out.code, out.stdout, out.stderr)
