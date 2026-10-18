@@ -8,6 +8,7 @@ changes, please open an issue first to agree on the approach.
 - Go 1.26 or later (CI tests the two latest Go releases).
 - [golangci-lint](https://golangci-lint.run/) v2.15 for linting.
 - `curl` and `bash` for `examples/demo.sh`.
+- Python 3.11 or later, only for the prompt-length check below.
 
 The module has no third-party dependencies (see
 [ADR 0003](docs/adr/0003-standard-library-only.md)); please discuss before
@@ -29,6 +30,21 @@ go vet ./...
 
 go run ./examples/library               # library example
 DURATION=3s examples/demo.sh            # CLI demo against the mock
+```
+
+If fuzzing finds a failure, Go writes the input to
+`sse/testdata/fuzz/FuzzDecoder/`. Commit that file with the fix: it then
+runs as a regular test case.
+
+Synthetic prompts must stay exactly `--input-tokens` long in the
+`cl100k_base` and `o200k_base` encodings. After changing the vocabulary or
+the instruction in `internal/prompt`, count them with tiktoken (CI does the
+same):
+
+```sh
+python3 -m venv .venv
+.venv/bin/pip install -r scripts/prompttokens/requirements.txt
+go run ./scripts/prompttokens -seeds 10 -count 50 | .venv/bin/python scripts/prompttokens/check.py
 ```
 
 Markdown and CSV rendering are checked against golden files in
@@ -67,3 +83,18 @@ go test -run='^$' -bench=. -benchtime=2s -count=3 ./sse ./internal/stats
   revisit a recorded decision.
 - Numbers in the documentation must come from a command you ran, stated
   next to the number with the hardware and Go version.
+
+## Releasing
+
+Nothing has been released yet. A release is a tag on `main`; the
+`.goreleaser.yaml` builds the binaries and a draft GitHub release:
+
+```sh
+# Move the "Unreleased" entries under a new version heading in CHANGELOG.md first.
+git tag -a v0.1.0 -m "v0.1.0"
+git push origin v0.1.0
+goreleaser release --clean   # or from CI
+```
+
+Until a tag exists, `go install ...@latest` installs a pseudo-version such
+as `0.0.0-20261018...`, and `llm-loadtest version` prints it.

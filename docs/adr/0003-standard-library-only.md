@@ -43,8 +43,9 @@ Use only the standard library (option 2).
 ## Consequences
 
 - `go.mod` has no `require` block; `go install` fetches one module.
-- About 4,100 lines of non-test Go, comments included, to maintain; the
-  SSE decoder is about 260 of them and the sketch about 200.
+- About 4,800 lines of non-test Go, comments included, to maintain
+  (`git ls-files '*.go' | grep -v _test.go | xargs wc -l`); the SSE decoder
+  is about 270 of them and the sketch about 200.
 - `flag` accepts both `-flag` and `--flag` but prints help with a single
   dash and has no shell completion. Acceptable for a tool with four
   commands.

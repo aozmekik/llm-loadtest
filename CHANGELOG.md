@@ -21,17 +21,28 @@ change between minor versions.
 - Exact token counts via `stream_options.include_usage`, with a labelled
   chunk-count fallback.
 - Synthetic prompts of a target length (exact for the cl100k_base and
-  o200k_base encodings) and JSONL datasets.
+  o200k_base encodings, checked in CI with tiktoken; at least 18 tokens)
+  and JSONL datasets.
 - Warmup, per-request and idle timeouts, extra headers, extra request body
-  fields, and an API key read from an environment variable.
+  fields, and `--max-tokens-field` to send the limit as
+  `max_completion_tokens`.
+- An API key read from an environment variable: `OPENAI_API_KEY` by
+  default, sent only to api.openai.com; any other variable named with
+  `--api-key-env`. Redirects are not followed, and configured secrets are
+  scrubbed from error messages.
 - Error counts by class (`http_<status>`, `timeout`, `idle_timeout`,
-  `connection`, `stream_error`, `protocol`, `incomplete`, `canceled`).
+  `connection`, `stream_error`, `protocol`, `incomplete`), with requests
+  canceled by an interrupt counted separately.
 - Live progress, Markdown report, and JSON, CSV and Markdown files via
   `--out`.
-- `llm-loadtest compare` to diff two JSON results, with a regression
-  threshold and exit code for CI.
+- `llm-loadtest compare` to diff two JSON results. With `--threshold` (and
+  `--error-threshold` for the error rate) it exits 1 on a regression, a
+  missing or failed stage, or an interrupted run, for use as a CI gate.
 - `llm-loadtest mock` and the `mock` package: an OpenAI-compatible server
   with configurable latency distributions, output lengths, slots and error
   injection.
 - The `sse` package: a streaming Server-Sent Events decoder following the
   WHATWG parsing rules.
+
+[Unreleased]: https://github.com/aozmekik/llm-loadtest/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/aozmekik/llm-loadtest/releases/tag/v0.1.0

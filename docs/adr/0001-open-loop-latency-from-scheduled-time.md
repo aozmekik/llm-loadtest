@@ -69,9 +69,19 @@ start (option 3, alongside option 1 for capacity questions).
 
 - Past saturation, open-loop latencies grow without bound for the length of
   the stage, which is the honest answer to "what happens at this rate?".
-  The README demo shows it: against a mock that serves about 4 req/s,
-  Poisson arrivals at 6 req/s gave a TTFT p50 of 5.3 s, while a closed
-  loop at concurrency 8 reported 120 ms at about the same throughput.
+  The demo in [docs/benchmarks.md](../benchmarks.md) shows it: against a
+  mock that serves about 4 req/s, Poisson arrivals at 6 req/s gave a TTFT
+  p50 of 5.3 s, while a closed loop at concurrency 8 reported 120 ms at
+  about the same throughput.
+- `--duration` bounds the schedule, not the sending. Arrivals scheduled
+  within it are all sent, also after it when `--max-in-flight` held them
+  back, so a stage with a saturated cap runs longer than `--duration` (10
+  requests at 10 req/s with one slot and 1 s per request take 10 s,
+  `TestOpenLoopSendsBacklogAfterDuration`). Stopping at the wall-clock
+  deadline instead would silently drop the queued arrivals, which is
+  coordinated omission again; counting them as a "dropped" error class
+  would need a latency for requests never sent. Send lag shows when this
+  happens.
 - Open-loop results depend on the stage duration once the server is
   saturated (the queue keeps growing). Reports state the duration, and
   comparisons should use equal durations.

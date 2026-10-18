@@ -42,7 +42,8 @@ Option 3, keeping a small number of real-network tests.
   values are exact: a mock with 100 ms TTFT and 10 ms ITL yields a measured
   TTFT of exactly 100 ms and an end-to-end latency of exactly 190 ms for
   10 tokens.
-- Statistical tests (Poisson arrivals, mock distributions) use fixed seeds
+- Statistical tests (Poisson arrivals, mock distributions, and measured
+  TTFT and ITL percentiles against random mock latencies) use fixed seeds
   and bounds of five standard errors, so they are deterministic for the
   seed and would hold for nearly any other.
 - Real-network tests remain where the network path is the point:

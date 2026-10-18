@@ -15,13 +15,15 @@ LLM serving latency is not one number. Time to first token (TTFT) is
 dominated by queueing and prefill; inter-token latency (ITL) by decode
 batching. They move differently under load, and both matter to users.
 
-Most load generators run a closed loop: N workers, each sending its next
-request when the previous one finishes. That answers "how does the server
+A closed loop (N workers, each sending its next request when the previous
+one finishes) is the common default. It answers "how does the server
 behave with N streams in flight?", but when the server slows down the
 workers slow down with it, so the queueing real users would see is never
-measured. This is coordinated omission. llm-loadtest also runs an open
-loop, sending requests at scheduled Poisson or constant arrival times and
-measuring latency from the scheduled start
+measured. This is coordinated omission. Open-loop modes, which send at a
+target rate, fix that, but they usually time each request from when it was
+actually sent, so a generator that falls behind hides the delay again.
+llm-loadtest times every request from its *scheduled* start and reports
+the generator's send lag separately
 ([ADR 0001](docs/adr/0001-open-loop-latency-from-scheduled-time.md)).
 
 It is a single self-contained binary with no dependencies beyond the Go
@@ -40,16 +42,22 @@ rehearsed without a GPU.
 - Exact token counts via `stream_options.include_usage`; when the server
   sends no usage, a chunk-count approximation that the report labels as such.
 - Synthetic prompts of a target length (exact for the `cl100k_base` and
-  `o200k_base` encodings) or JSONL datasets.
-- An SSE decoder that follows the WHATWG parsing rules: any chunk
-  boundaries, CRLF/LF/CR, comments, multi-line data, `[DONE]`, error
-  payloads mid-stream. Fuzz-tested against a reference parser.
-- Markdown report, JSON and CSV export, and `compare` with a regression
-  threshold for CI.
+  `o200k_base` encodings, checked in CI with tiktoken) or JSONL datasets.
+- A streaming SSE decoder (the public `sse` package) that follows the
+  WHATWG parsing rules: any chunk boundaries, CRLF/LF/CR, comments,
+  multi-line data, and no lookahead past the end of an event. Fuzz-tested
+  against a reference parser.
+- An OpenAI streaming layer on top of it: `[DONE]`, error payloads
+  mid-stream, usage chunks, role-only chunks, and servers that omit
+  `[DONE]` after a `finish_reason`.
+- Markdown report, JSON and CSV export, and `compare` with regression
+  thresholds that can gate CI.
 - `llm-loadtest mock`: an OpenAI-compatible server with latency
   distributions, output lengths, limited slots and error injection.
-- The API key is read from an environment variable and never printed or
-  saved; header values and URL credentials are scrubbed from error messages.
+- Credentials go only where they are pointed: the API key comes from an
+  environment variable and is never printed or saved, `OPENAI_API_KEY` is
+  sent only to `api.openai.com`, redirects are not followed, and configured
+  secrets are scrubbed from error messages.
 
 ## Install
 
@@ -70,25 +78,31 @@ Or build from a clone: `go build -o llm-loadtest ./cmd/llm-loadtest`.
 
 ## Quick start
 
-Rehearse against the built-in mock (no GPU, no key):
+Rehearse against the built-in mock (no GPU, no key). This took 36 s on the
+Apple M1 Pro described under [Benchmarks](#benchmarks):
 
 ```sh
 llm-loadtest mock --slots 8 &          # serves http://127.0.0.1:8000/v1
 llm-loadtest run --base-url http://127.0.0.1:8000/v1 --model mock \
-  --concurrency 1,4,16 --duration 20s
+  --max-tokens 64 --concurrency 1,4,16 --duration 10s
+kill %1                                # stop the mock
 ```
+
+The mock serves 8 requests at a time, so at concurrency 16 the report shows
+requests queueing for a slot: in that run, TTFT p50 went from 150 ms at
+concurrency 4 to 1.57 s at 16.
 
 Then point it at a real server. The `--base-url` defaults below are the
 ports these projects document; adjust them to your deployment.
 
-| Server | `--base-url` |
-|---|---|
-| vLLM | `http://localhost:8000/v1` |
-| SGLang | `http://localhost:30000/v1` |
-| llama.cpp `llama-server` | `http://localhost:8080/v1` |
-| Ollama | `http://localhost:11434/v1` |
-| OpenAI | `https://api.openai.com/v1` |
-| OpenRouter | `https://openrouter.ai/api/v1` |
+| Server | `--base-url` | API key |
+|---|---|---|
+| vLLM | `http://localhost:8000/v1` | `--api-key-env NAME` if started with `--api-key` |
+| SGLang | `http://localhost:30000/v1` | as vLLM |
+| llama.cpp `llama-server` | `http://localhost:8080/v1` | as vLLM |
+| Ollama | `http://localhost:11434/v1` | none |
+| OpenAI | `https://api.openai.com/v1` | `$OPENAI_API_KEY`, read by default |
+| OpenRouter | `https://openrouter.ai/api/v1` | `--api-key-env OPENROUTER_API_KEY` |
 
 ```sh
 # Concurrency sweep with fixed-length output on vLLM (ignore_eos is a vLLM extension).
@@ -97,10 +111,15 @@ llm-loadtest run --base-url http://localhost:8000/v1 --model "$MODEL" \
   --concurrency 1,2,4,8,16,32 --duration 60s --warmup 16 \
   --out results.json --out results.csv
 
-# Open-loop Poisson arrivals against a hosted API; the key comes from $OPENAI_API_KEY.
+# Open-loop Poisson arrivals against OpenAI; the key comes from $OPENAI_API_KEY.
+# For o-series models, which do not accept max_tokens, add --max-tokens-field max_completion_tokens.
 llm-loadtest run --base-url https://api.openai.com/v1 --model "$MODEL" \
-  --rate 0.5,1 --duration 2m --max-tokens 128
+  --rate 0.5,1 --duration 2m --max-tokens 128 --warmup 2
 ```
+
+`--warmup` sends a few requests first and stops the run if all of them
+fail, so a wrong URL, model, key or parameter costs seconds, not the whole
+sweep.
 
 ## Usage
 
@@ -117,19 +136,28 @@ llm-loadtest run --base-url https://api.openai.com/v1 --model "$MODEL" \
 
 Each stage stops issuing after `--duration` (default 30s) or `--requests`,
 whichever comes first, then waits for requests in flight. `--warmup N`
-sends N requests first and leaves them out of the results; if every warmup
-request fails, the run stops before wasting time. Open-loop concurrency is
-capped by `--max-in-flight` (default 1024); waiting for the cap is counted
-in latency and reported as send lag.
+sends N requests first and leaves them out of the results. Open-loop
+concurrency is capped by `--max-in-flight` (default 1024); waiting for the
+cap is counted in latency and reported as send lag, and arrivals scheduled
+within `--duration` are still sent after it, so a stage whose cap is
+saturated runs longer than `--duration` rather than dropping requests.
 
 ### Prompts
 
 Without `--dataset`, each request gets a distinct synthetic prompt of
-`--input-tokens` tokens (default 256), random common words followed by an
-instruction to continue. Distinct prompts keep a prefix cache from
-flattering TTFT. The text is exactly the target length in `cl100k_base` and
-`o200k_base`; other tokenizers and chat templates differ, and the report
-shows the server-measured input tokens when usage is available.
+`--input-tokens` tokens (default 256, at least 18): random common words
+followed by an instruction to continue. The text is exactly the target
+length in `cl100k_base` and `o200k_base`
+([scripts/prompttokens](scripts/prompttokens) counts 5,500 prompts with
+tiktoken 0.14.0, all exact); other tokenizers and chat templates differ, and
+the report shows the server-measured input tokens when usage is available.
+
+Distinct prompts keep a prefix cache from flattering TTFT within a run.
+Across runs, the same `--seed` (default 1) sends the same prompts, so a
+second run against a server with automatic prefix caching, such as vLLM or
+SGLang, can be served from the cache. Give each run against one server its
+own `--seed`, or restart the server or reset its cache in between;
+`compare` warns when both runs sent the same prompts to the same URL.
 
 A dataset is JSONL with one `prompt` or `messages` per line and an optional
 per-row `max_tokens` ([example](examples/prompts.jsonl)):
@@ -140,7 +168,27 @@ per-row `max_tokens` ([example](examples/prompts.jsonl)):
 ```
 
 Rows are used in order and repeated; `--shuffle` permutes them with
-`--seed`.
+`--seed`. A run that cycles through a dataset says so, since repeated
+prompts are also prefix-cache hits.
+
+### API keys and secrets
+
+The key is read from the environment variable named by `--api-key-env` and
+sent as `Authorization: Bearer <key>` to `--base-url`. Without the flag,
+`OPENAI_API_KEY` is read only when the host is `api.openai.com`, so an
+OpenAI key in your environment never reaches the mock, a local engine or a
+third-party API by accident. The run prints which variable's key goes to
+which host, notes when a remote server gets no key, and warns when the key
+would cross the network over plain HTTP
+([ADR 0005](docs/adr/0005-credentials-go-only-where-pointed.md)).
+
+The key is never printed or written to a result file. Results store the
+base URL with credentials and query values replaced, and only the names of
+`--header` headers. Error messages, which servers sometimes fill with the
+request they received, are scrubbed of the API key and URL password, and of
+header values, URL usernames and query values of 8 bytes or more, also in
+their URL-escaped forms. A server that echoes only part of a secret is not
+caught.
 
 ### Output
 
@@ -155,27 +203,41 @@ Rows are used in order and repeated; `--shuffle` permutes them with
 Every metric is defined in [docs/metrics.md](docs/metrics.md). In short:
 TTFT and E2E are measured from each request's scheduled start, ITL between
 consecutive content chunks, TPOT as (E2E - TTFT) / (tokens - 1), and
-distributions cover successful requests only.
+distributions cover successful requests only. That last point means
+timeouts censor the tail: requests that hit `--timeout` (default 5m) are
+errors, not part of the percentiles, and the report says so whenever a
+stage had any.
 
 ### Comparing runs
 
 ```sh
-llm-loadtest compare base.json head.json --threshold 10
+llm-loadtest compare base.json head.json --threshold 10 --error-threshold 1
 ```
 
 Stages are matched by load. The table shows each key metric and its
-relative change (percentage points for error rate). With `--threshold`,
-any metric worse by more than that many percent is marked as a regression
-and the exit code is 1, which makes it usable as a CI gate.
+relative change (percentage points for the error rate); a statistic with no
+samples on one side, such as the latency of a stage where every request
+failed, shows `-` and is not judged.
+
+With `--threshold PCT`, compare exits 1 when any throughput or latency
+metric is more than PCT percent worse, when the error rate rises by more
+than `--error-threshold` percentage points (default: the same number), and
+also when the comparison does not cover the base run: a base stage is
+missing from head, no stage matches, a head stage has no successful
+request, or either run was interrupted. The reasons go to stderr, so it
+can gate CI. Settings that differ between the runs (model, prompts,
+max_tokens, stage duration and so on) are listed but never fail the
+comparison. Open-loop results depend on the stage duration once the server
+saturates, so compare runs of equal duration.
 
 ### Exit codes
 
 | Code | Meaning |
 |---|---|
 | 0 | Success. |
-| 1 | The run failed, no request succeeded, or `compare` found a regression. |
+| 1 | The run failed, no request succeeded, or `compare --threshold` failed. |
 | 2 | Invalid flags or arguments. |
-| 130 | Interrupted by Ctrl-C or SIGTERM; partial results were still written. |
+| 130 | Interrupted by Ctrl-C or SIGTERM. If a stage had started, the partial results are still printed and written; requests canceled in flight are counted separately, not as errors. |
 
 ### Mock server
 
@@ -190,7 +252,9 @@ requests queue and their wait shows up as TTFT, which makes saturation
 visible in a sweep. Faults: `--error-rate` (HTTP `--error-status`),
 `--stream-error-rate` (error payload mid-stream) and `--abort-rate`
 (dropped connection). `--no-usage` imitates servers without usage
-reporting, `--tokens-per-chunk` servers that batch output.
+reporting, `--tokens-per-chunk` servers that batch output. Token times are
+fixed when generation starts, so on a loaded machine late timers are
+caught up: the mean ITL holds, individual gaps can be shorter or longer.
 
 ### As a library
 
@@ -247,28 +311,28 @@ flowchart LR
   `testing/synctest` bubbles, connected by an in-memory transport, so tests
   assert exact durations instead of tolerances.
   [ADR 0004](docs/adr/0004-deterministic-timing-tests.md)
+- **Credentials only where pointed.** See [API keys and
+  secrets](#api-keys-and-secrets) and
+  [ADR 0005](docs/adr/0005-credentials-go-only-where-pointed.md).
 
 Trade-offs: ITL is measured per chunk, so servers that batch tokens into
 chunks report chunk cadence (TPOT stays per token). Duration-bound stages
 include the drain of requests in flight, which slightly lowers throughput
 for long requests. Past saturation, open-loop latency keeps growing for the
 length of the stage, by design; compare runs of equal duration.
+Distributions over successful requests keep fast failures from flattering
+latency, at the price of leaving timed-out requests out of the tail.
 
 ## Benchmarks
 
-All numbers below come from the built-in **mock server**, not from a
-model. They show what the tool measures and how much overhead it adds; for
-real-engine numbers, bring your own server.
+Measured against the built-in **mock server**, not a model, on an Apple M1
+Pro (8 cores, 16 GB, macOS 26.6.2, Go 1.27.2) shared with other jobs (load
+average 7 to 35). For real-engine numbers, bring your own server.
+[docs/benchmarks.md](docs/benchmarks.md) has the methodology, every
+command and the generator-ceiling, saturation and microbenchmark results.
 
-Environment for every run: Apple M1 Pro (8 cores), 16 GB RAM, macOS 26.6.2,
-Go 1.27.2, client and mock on the same machine over loopback, binary built
-from commit `bed18bf`. Other jobs were running on the machine throughout
-(load average 17 to 29), so expect noise, especially in the tails.
-
-### Measurement overhead
-
-A mock with constant 50 ms TTFT, 10 ms ITL and 64 output tokens, so the
-expected E2E is 50 + 63 x 10 = 680 ms:
+Measurement overhead, with a mock of constant 50 ms TTFT, 10 ms ITL and 64
+tokens (expected E2E 680 ms):
 
 ```sh
 llm-loadtest mock --addr 127.0.0.1:18300 --ttft 50ms --itl 10ms --output-tokens 64
@@ -276,99 +340,32 @@ llm-loadtest run --base-url http://127.0.0.1:18300/v1 --model mock --max-tokens 
   --concurrency 1,8,32 --duration 20s --warmup 8
 ```
 
-| Concurrency | Requests | TTFT p50 | TTFT p99 | ITL p50 | TPOT p50 | E2E p50 | E2E p99 |
-|--:|--:|--:|--:|--:|--:|--:|--:|
-| 1 | 30 | 51.4 ms | 53.7 ms | 10.1 ms | 10.0 ms | 681 ms | 686 ms |
-| 8 | 240 | 51.4 ms | 51.7 ms | 10.1 ms | 10.0 ms | 681 ms | 682 ms |
-| 32 | 960 | 50.9 ms | 52.1 ms | 10.1 ms | 10.0 ms | 682 ms | 683 ms |
+| Concurrency | Requests | TTFT p50 | ITL p50 | TPOT p50 | E2E p50 | E2E p99 |
+|--:|--:|--:|--:|--:|--:|--:|
+| 1 | 30 | 51.4 ms | 10.1 ms | 10.0 ms | 681 ms | 682 ms |
+| 8 | 240 | 51.3 ms | 10.1 ms | 10.0 ms | 681 ms | 684 ms |
+| 32 | 960 | 51.0 ms | 10.1 ms | 10.0 ms | 681 ms | 688 ms |
 
-Measured TTFT is 0.9 to 1.4 ms above the configured value, which covers the
-mock's timer, the loopback round trip and the client. ITL p50 reads 10.1 ms,
-within the sketch's 1% accuracy of the configured 10 ms; the exact mean ITL
-and TPOT p50 read 10.0 ms.
-
-### Generator ceiling
-
-A mock with zero latency and 64 output tokens, so the client and the mock,
-sharing the same CPUs, are the bottleneck:
-
-```sh
-llm-loadtest mock --addr 127.0.0.1:18301 --ttft 0s --itl 0s --output-tokens 64
-llm-loadtest run --base-url http://127.0.0.1:18301/v1 --model mock --max-tokens 64 \
-  --concurrency 1,16,64 --duration 10s --warmup 16 --json-records=false
-```
-
-| Concurrency | Requests | Req/s | Output tok/s | E2E p50 | E2E p99 |
-|--:|--:|--:|--:|--:|--:|
-| 1 | 19,826 | 1,983 | 126,886 | 0.49 ms | 0.85 ms |
-| 16 | 54,545 | 5,453 | 349,011 | 2.17 ms | 13.0 ms |
-| 64 | 54,096 | 5,404 | 345,853 | 4.31 ms | 64.5 ms |
-
-Throughput flattens at about 5,400 req/s on this shared machine. Real
-servers are orders of magnitude slower per request, so the generator is
-unlikely to be the limit; if send lag grows in an open-loop run, it is.
-
-### Saturation and coordinated omission
-
-From [examples/demo.sh](examples/demo.sh) with `DURATION=20s`: a mock with
-8 slots where each request takes about 2 s (120 ms TTFT, 15 ms per token,
-64 to 192 tokens), so its capacity is about 4 req/s.
-
-Closed-loop sweep (`--concurrency 1,2,4,8,16 --duration 20s --warmup 8`):
-
-| Load | OK | Req/s | Out tok/s | TTFT p50 | TTFT p99 | ITL p50 | E2E p50 | E2E p99 |
-|:--|--:|--:|--:|--:|--:|--:|--:|--:|
-| concurrency=1 | 10 | 0.50 | 62.6 | 115 | 147 | 15.3 | 1909 | 2781 |
-| concurrency=2 | 23 | 1.12 | 125 | 117 | 159 | 15.0 | 1696 | 2768 |
-| concurrency=4 | 43 | 2.00 | 244 | 122 | 163 | 15.0 | 1883 | 2976 |
-| concurrency=8 | 87 | 3.95 | 494 | 120 | 164 | 15.0 | 2086 | 2978 |
-| concurrency=16 | 92 | 3.78 | 477 | 2071 | 2710 | 15.0 | 3939 | 4936 |
-
-Throughput saturates at 8 streams; at 16 the extra requests wait for a
-slot and TTFT jumps from 120 ms to 2 s. Running the same sweep against a
-mock with 16 slots and comparing (`llm-loadtest compare`) shows the
-concurrency=16 stage improving by +101.4% in req/s and -94.3% in TTFT p50.
-
-Open loop at Poisson rates below and above capacity (`--rate 2,6
---duration 20s`, prompts from `examples/prompts.jsonl`):
-
-| Load | OK | Req/s | TTFT p50 | TTFT p99 | E2E p50 | E2E p99 |
-|:--|--:|--:|--:|--:|--:|--:|
-| rate=2/s poisson | 45 | 2.05 | 118 | 158 | 1521 | 2821 |
-| rate=6/s poisson | 127 | 4.16 | 5263 | 9042 | 7460 | 11279 |
-
-Latencies in ms. The closed loop at concurrency 8 reported a TTFT p99 of
-164 ms at 3.95 req/s. Offered 6 req/s, the same server completes about
-4 req/s and the queue grows for the whole stage: TTFT p50 is 5.3 s. A
-closed loop cannot show this, because it never offers more than the server
-completes.
-
-### Microbenchmarks
-
-```sh
-go test -run='^$' -bench=. -benchtime=2s -count=3 ./sse ./internal/stats
-```
-
-| Benchmark | Result | Allocations |
-|---|---|---|
-| SSE decoder, 1,001 OpenAI-style events (157 KiB) | 0.72 to 1.15 GB/s | 1,004 allocs per stream |
-| DDSketch `Add` | 15 to 31 ns per value | 0 |
-
-The ranges span two runs of three, at load averages of about 17 and 23
-(the `sse` and `internal/stats` code was the same in both); the slow ends
-come from the busier run.
+The client adds 1.0 to 1.4 ms to TTFT, including the mock's timer and the
+loopback round trip. In the coordinated-omission demo
+([examples/demo.sh](examples/demo.sh), a mock with capacity for about
+4 req/s), a closed loop at concurrency 8 reports a TTFT p99 of 164 ms,
+while Poisson arrivals at 6 req/s show the queue the closed loop hides:
+TTFT p50 5.3 s.
 
 ## Testing
 
-`go test -race -shuffle=on ./...` runs 95 test functions, 2 runnable
+`go test -race -shuffle=on ./...` runs 111 test functions, 2 runnable
 examples, a fuzz target and 2 benchmarks. They include SSE parsing of
 fragmented input and a fuzz test against a reference parser, percentile and
 sketch accuracy checks against known values, exact end-to-end timing of
-client and mock inside `testing/synctest` bubbles, the open-loop scheduler
-on the fake clock, and a coordinated-omission test. Statement coverage is
-93.2% for the module (92.5% to 99.0% per library package), from
-`go test -coverprofile=cover.out ./... && go tool cover -func=cover.out`.
-See [CONTRIBUTING.md](CONTRIBUTING.md) for all commands.
+client and mock inside `testing/synctest` bubbles, measured TTFT and ITL
+percentiles against random mock latencies within five standard errors, the
+open-loop scheduler on the fake clock, and a coordinated-omission test.
+Statement coverage is 92.8% for the module (92.5% to 99.0% per package
+with tests), from `go test -coverprofile=cover.out ./... && go tool cover
+-func=cover.out` (Go 1.27.2, Apple M1 Pro). See
+[CONTRIBUTING.md](CONTRIBUTING.md) for all commands.
 
 ## Limitations
 
@@ -377,9 +374,12 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for all commands.
 - One process generates the load; there is no distributed mode.
 - ITL is per chunk (see [Design](#design)); TTFT counts reasoning tokens as
   output.
-- Synthetic prompt length is exact only for `cl100k_base` and `o200k_base`.
+- Timed-out requests are left out of the latency distributions (see
+  [Output](#output)).
+- Synthetic prompt length is exact only for `cl100k_base` and `o200k_base`,
+  and at least 18 tokens.
 - No custom TLS settings (client certificates, custom CAs) beyond the
-  system trust store and `HTTPS_PROXY`.
+  system trust store and `HTTPS_PROXY`, and redirects are never followed.
 - Tested against the built-in mock and hand-written protocol fixtures only;
   it has not yet been run against vLLM, SGLang, llama.cpp, Ollama or hosted
   APIs in this repository. Reports of mismatches are welcome.
@@ -401,8 +401,10 @@ Implemented from these specifications and papers:
 
 - WHATWG HTML Living Standard, section 9.2 "Server-sent events":
   https://html.spec.whatwg.org/multipage/server-sent-events.html
-- OpenAI API reference, chat completions streaming and
-  `stream_options`: https://platform.openai.com/docs/api-reference/chat
+- OpenAI API reference, chat completions streaming, `stream_options` and
+  `max_completion_tokens`: https://platform.openai.com/docs/api-reference/chat
+  (also published as an OpenAPI document in
+  https://github.com/openai/openai-openapi)
 - Masson, Rim and Lee, "DDSketch: A Fast and Fully-Mergeable Quantile
   Sketch with Relative-Error Guarantees", VLDB 2019.
 - Gil Tene, "How NOT to Measure Latency", 2015, on coordinated omission;

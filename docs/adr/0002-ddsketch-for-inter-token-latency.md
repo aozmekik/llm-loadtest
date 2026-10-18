@@ -52,8 +52,9 @@ length rather than with the information needed (a handful of percentiles).
 
 - ITL memory is bounded: a 1e-3 to 1e4 ms value range needs about 806
   buckets (`TestSketchMemoryIsLogarithmic`), regardless of token count.
-  `BenchmarkSketchAdd` measured about 15 ns per sample with no allocation
-  on an Apple M1 Pro (see the README for the exact command).
+  `BenchmarkSketchAdd` measured 14.7 to 15.2 ns per sample with no
+  allocation on an Apple M1 Pro with Go 1.27.2 (see
+  [docs/benchmarks.md](../benchmarks.md) for the exact command).
 - ITL percentiles are estimates. Reports say so ("sketch estimates within
   1%"), and `TestSketchRelativeErrorGuarantee` checks the bound against
   exact percentiles on uniform, exponential, lognormal, wide-range and
