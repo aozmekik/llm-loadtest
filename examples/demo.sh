@@ -55,9 +55,11 @@ start_mock 8
   --out "$OUT/sweep-8-slots.json" --out "$OUT/sweep-8-slots.csv" --out "$OUT/sweep-8-slots.md"
 
 echo "== 2. Same sweep, mock with 16 slots, compared with step 1"
+# A second run against the same address gets its own --seed, as it should
+# against a real server, whose prefix cache could serve repeated prompts.
 start_mock 16
 "$bin" run --base-url "$BASE_URL" --model mock --max-tokens 192 \
-  --concurrency 1,2,4,8,16 --duration "$DURATION" --warmup 8 \
+  --concurrency 1,2,4,8,16 --duration "$DURATION" --warmup 8 --seed 2 \
   --out "$OUT/sweep-16-slots.json" >/dev/null
 "$bin" compare "$OUT/sweep-8-slots.json" "$OUT/sweep-16-slots.json"
 
