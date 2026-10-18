@@ -272,7 +272,7 @@ func TestWritersReportErrors(t *testing.T) {
 	if report.WriteCSV(failingWriter{}, r) == nil {
 		t.Error("WriteCSV ignored a write error")
 	}
-	if report.Compare(r, r, 0).WriteMarkdown(failingWriter{}, "a", "b") == nil {
+	if report.Compare(r, r, report.Thresholds{}).WriteMarkdown(failingWriter{}, "a", "b") == nil {
 		t.Error("Comparison.WriteMarkdown ignored a write error")
 	}
 }

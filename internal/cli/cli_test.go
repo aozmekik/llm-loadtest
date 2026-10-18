@@ -323,11 +323,18 @@ func TestRunUsageErrors(t *testing.T) {
 	}
 }
 
-func writeResult(t *testing.T, path string, rps float64) {
+// stage4 is a closed-loop stage at concurrency c with the given throughput
+// and number of failed requests out of 10.
+func stage4(c int, rps float64, failed int) report.Stage {
+	return report.Stage{
+		Load: loadgen.Load{Mode: loadgen.Closed, Concurrency: c}, Requests: 10, Succeeded: 10 - failed, Failed: failed,
+		RequestsPerSecond: rps,
+	}
+}
+
+func writeResult(t *testing.T, path string, interrupted bool, stages ...report.Stage) {
 	t.Helper()
-	r := &report.Result{SchemaVersion: report.SchemaVersion, Stages: []report.Stage{{
-		Load: loadgen.Load{Mode: loadgen.Closed, Concurrency: 4}, Requests: 10, Succeeded: 10, RequestsPerSecond: rps,
-	}}}
+	r := &report.Result{SchemaVersion: report.SchemaVersion, Interrupted: interrupted, Stages: stages}
 	f, err := os.Create(path)
 	if err != nil {
 		t.Fatal(err)
@@ -342,8 +349,8 @@ func TestCompare(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	base, head := filepath.Join(dir, "base.json"), filepath.Join(dir, "head.json")
-	writeResult(t, base, 10)
-	writeResult(t, head, 8)
+	writeResult(t, base, false, stage4(4, 10, 0))
+	writeResult(t, head, false, stage4(4, 8, 0))
 
 	out := invoke(t.Context(), t, nil, "compare", base, head)
 	if out.code != 0 || !strings.Contains(out.stdout, "| Req/s | 10.0 | 8.00 | -20.0% |") {
@@ -351,8 +358,8 @@ func TestCompare(t *testing.T) {
 	}
 	// Flags may follow the file names.
 	out = invoke(t.Context(), t, nil, "compare", base, head, "--threshold", "10")
-	if out.code != 1 || !strings.Contains(out.stdout, "regression") {
-		t.Errorf("threshold compare: exit %d\n%s", out.code, out.stdout)
+	if out.code != 1 || !strings.Contains(out.stdout, "regression") || !strings.Contains(out.stderr, "1 metric regressed") {
+		t.Errorf("threshold compare: exit %d\n%s%s", out.code, out.stdout, out.stderr)
 	}
 	if out = invoke(t.Context(), t, nil, "compare", "--threshold", "25", base, head); out.code != 0 {
 		t.Errorf("change within threshold: exit %d", out.code)
@@ -362,6 +369,9 @@ func TestCompare(t *testing.T) {
 	}
 	if out = invoke(t.Context(), t, nil, "compare", "--threshold", "-1", base, head); out.code != 2 {
 		t.Errorf("negative threshold: exit %d, want 2", out.code)
+	}
+	if out = invoke(t.Context(), t, nil, "compare", "--error-threshold", "1", base, head); out.code != 2 {
+		t.Errorf("--error-threshold without --threshold: exit %d, want 2", out.code)
 	}
 	if out = invoke(t.Context(), t, nil, "compare", base, filepath.Join(dir, "missing.json")); out.code != 1 {
 		t.Errorf("missing file: exit %d, want 1", out.code)
@@ -375,6 +385,40 @@ func TestCompare(t *testing.T) {
 	}
 	if out = invoke(t.Context(), t, nil, "compare", "--", base, head); out.code != 0 {
 		t.Errorf("-- separator: exit %d\n%s", out.code, out.stderr)
+	}
+}
+
+// TestCompareGate checks the cases where compare --threshold must fail even
+// though no matched metric regressed.
+func TestCompareGate(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := func(name string) string { return filepath.Join(dir, name) }
+	writeResult(t, path("base.json"), false, stage4(1, 10, 0), stage4(8, 50, 0))
+	writeResult(t, path("partial.json"), true, stage4(1, 10, 0))
+	writeResult(t, path("other-load.json"), false, stage4(99, 10, 0))
+	writeResult(t, path("errors.json"), false, stage4(1, 10, 2), stage4(8, 50, 0))
+	tests := []struct {
+		name   string
+		args   []string
+		code   int
+		stderr string
+	}{
+		{"interrupted head missing a stage", []string{"partial.json"}, 1, "base stage concurrency=8 is missing from head; the head run was interrupted"},
+		{"no stage matches", []string{"other-load.json"}, 1, "no stage loads match"},
+		// Error rate 0% -> 20%: within 25 pp, beyond 10 pp.
+		{"error rate within threshold", []string{"errors.json", "--threshold", "25"}, 0, ""},
+		{"error rate beyond its own threshold", []string{"errors.json", "--threshold", "25", "--error-threshold", "10"}, 1, "1 metric regressed"},
+	}
+	for _, tt := range tests {
+		args := []string{"compare", path("base.json"), path(tt.args[0]), "--threshold", "5"}
+		if len(tt.args) > 1 {
+			args = append([]string{"compare", path("base.json"), path(tt.args[0])}, tt.args[1:]...)
+		}
+		out := invoke(t.Context(), t, nil, args...)
+		if out.code != tt.code || !strings.Contains(out.stderr, tt.stderr) {
+			t.Errorf("%s: exit %d (want %d)\nstdout: %s\nstderr: %s", tt.name, out.code, tt.code, out.stdout, out.stderr)
+		}
 	}
 }
 
