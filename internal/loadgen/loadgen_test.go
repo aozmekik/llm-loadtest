@@ -14,6 +14,7 @@ import (
 	"github.com/aozmekik/llm-loadtest/internal/client"
 	"github.com/aozmekik/llm-loadtest/internal/inmem"
 	"github.com/aozmekik/llm-loadtest/internal/loadgen"
+	"github.com/aozmekik/llm-loadtest/internal/report"
 	"github.com/aozmekik/llm-loadtest/mock"
 )
 
@@ -294,6 +295,63 @@ func TestPoissonArrivals(t *testing.T) {
 		if math.Abs(cv-1) > 0.07 {
 			t.Errorf("coefficient of variation = %.3f, want about 1", cv)
 		}
+	})
+}
+
+// TestMeasuredDistributionsMatchMock runs the whole measurement path (mock,
+// client, load generator, ITL sketch and report) with normally distributed
+// latencies and checks the reported percentiles against the configured
+// distributions. Every request draws from a source seeded by its sequence
+// number, so the sample, and hence the test, is the same on every run. The
+// bounds are five standard errors of each sample quantile, plus the
+// sketch's 1% for ITL.
+func TestMeasuredDistributionsMatchMock(t *testing.T) {
+	t.Parallel()
+	const (
+		requests          = 2000
+		tokens            = 16
+		ttftMean, ttftSD  = 150.0, 30.0 // ms
+		itlMean, itlSD    = 20.0, 4.0   // ms
+		z50, z90, z99     = 0.0, 1.2815515655446004, 2.3263478740408408
+		standardErrorsMax = 5
+	)
+	synctest.Test(t, func(t *testing.T) {
+		c := mockClient(t, mock.Config{
+			TTFT:         mock.Normal(time.Duration(ttftMean*float64(ms)), time.Duration(ttftSD*float64(ms))),
+			ITL:          mock.Normal(time.Duration(itlMean*float64(ms)), time.Duration(itlSD*float64(ms))),
+			OutputTokens: mock.Constant(tokens),
+			Seed:         5,
+		})
+		res := run(t, newRunner(t, loadgen.Config{Streamer: c}),
+			loadgen.Stage{Load: loadgen.Load{Mode: loadgen.Closed, Concurrency: 16}, Requests: requests})
+		st := report.NewStage(res)
+		if st.Succeeded != requests || st.ITL.Count != requests*(tokens-1) {
+			t.Fatalf("%d successes and %d ITL samples, want %d and %d", st.Succeeded, st.ITL.Count, requests, requests*(tokens-1))
+		}
+		check := func(name string, got, mean, sd, z float64, n int, slack float64) {
+			t.Helper()
+			p := 0.5 * math.Erfc(-z/math.Sqrt2)                       // the quantile's probability
+			density := math.Exp(-z*z/2) / (sd * math.Sqrt(2*math.Pi)) // at the true quantile
+			se := math.Sqrt(p*(1-p)/float64(n)) / density
+			want := mean + z*sd
+			if bound := standardErrorsMax*se + slack*want; math.Abs(got-want) > bound {
+				t.Errorf("%s = %.2f ms, want %.2f ms within %.2f", name, got, want, bound)
+			}
+		}
+		for _, q := range []struct {
+			name      string
+			ttft, itl float64
+			z         float64
+		}{
+			{"p50", st.TTFT.P50, st.ITL.P50, z50},
+			{"p90", st.TTFT.P90, st.ITL.P90, z90},
+			{"p99", st.TTFT.P99, st.ITL.P99, z99},
+		} {
+			check("TTFT "+q.name, q.ttft, ttftMean, ttftSD, q.z, requests, 0)
+			check("ITL "+q.name, q.itl, itlMean, itlSD, q.z, requests*(tokens-1), loadgen.ITLAccuracy)
+		}
+		// TPOT averages 15 gaps per request: mean 20ms, sd 4/sqrt(15) ms.
+		check("TPOT p50", st.TPOT.P50, itlMean, itlSD/math.Sqrt(tokens-1), z50, requests, 0)
 	})
 }
 
