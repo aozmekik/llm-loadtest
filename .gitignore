@@ -15,8 +15,9 @@ coverage.*
 /results/
 /examples/out/
 
-# Go fuzzing corpus generated locally (seed corpus lives in testdata/fuzz)
-/**/testdata/fuzz/**/cache/
+# Python environment for scripts/prompttokens
+.venv/
+__pycache__/
 
 # Editors and OS
 .idea/
