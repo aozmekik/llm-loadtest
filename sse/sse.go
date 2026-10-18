@@ -26,7 +26,7 @@ import (
 )
 
 // DefaultMaxSize is the default limit, in bytes, on the length of a single
-// line and on the accumulated data of a single event.
+// line (not counting its terminator) and on the data of a single event.
 const DefaultMaxSize = 1 << 20
 
 // ErrTooLarge is returned when a line or the data of an event exceeds the
@@ -79,15 +79,16 @@ func NewDecoder(r io.Reader) *Decoder {
 	return NewDecoderSize(r, DefaultMaxSize)
 }
 
-// NewDecoderSize returns a Decoder that reads from r and rejects lines or
-// events larger than maxSize bytes with ErrTooLarge. A maxSize below 64 is
-// raised to 64.
+// NewDecoderSize returns a Decoder that reads from r and fails with
+// ErrTooLarge on a line longer than maxSize bytes, not counting its
+// terminator, or an event whose data is longer than maxSize bytes. A
+// maxSize below 64 is raised to 64.
 func NewDecoderSize(r io.Reader, maxSize int) *Decoder {
 	maxSize = max(maxSize, 64)
 	return &Decoder{
 		r:       r,
 		maxSize: maxSize,
-		buf:     make([]byte, min(4096, maxSize)),
+		buf:     make([]byte, min(4096, maxSize+1)),
 	}
 }
 
@@ -154,7 +155,9 @@ func (d *Decoder) processLine(line []byte) error {
 	case "event":
 		d.eventType = string(value)
 	case "data":
-		if len(d.data)+len(value)+1 > d.maxSize {
+		// d.data holds the earlier lines, each followed by the LF that
+		// joins it to the next; the final LF is dropped at dispatch.
+		if len(d.data)+len(value) > d.maxSize {
 			return ErrTooLarge
 		}
 		d.data = append(d.data, value...)
@@ -236,12 +239,14 @@ func (d *Decoder) fill() {
 		d.start, d.end = 0, n
 	}
 	if d.end == len(d.buf) {
-		if len(d.buf) >= d.maxSize {
+		// The buffer holds the current line and one terminator byte.
+		limit := d.maxSize + 1
+		if len(d.buf) >= limit {
 			d.readErr = ErrTooLarge
 			d.start, d.end = 0, 0
 			return
 		}
-		grown := make([]byte, min(2*len(d.buf), d.maxSize))
+		grown := make([]byte, min(2*len(d.buf), limit))
 		copy(grown, d.buf[:d.end])
 		d.buf = grown
 	}

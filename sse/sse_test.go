@@ -223,6 +223,42 @@ func TestDecoderSizeLimit(t *testing.T) {
 			t.Fatalf("Next() error = %v, want ErrTooLarge", err)
 		}
 	})
+	t.Run("limit is inclusive", func(t *testing.T) {
+		t.Parallel()
+		for _, maxSize := range []int{100, 5000} {
+			lines := func(sizes ...int) string {
+				var b strings.Builder
+				for _, n := range sizes {
+					b.WriteString("data:" + strings.Repeat("z", n-len("data:")) + "\r\n")
+				}
+				return b.String() + "\r\n"
+			}
+			// Line lengths include the "data:" prefix; data lengths add one
+			// LF between lines.
+			for _, tt := range []struct {
+				input    string
+				wantData int // -1 for ErrTooLarge
+			}{
+				{lines(maxSize), maxSize - 5},
+				{lines(maxSize + 1), -1},
+				{lines(maxSize/2+5, maxSize/2+4), maxSize},
+				{lines(maxSize/2+5, maxSize/2+5), -1},
+			} {
+				for name, r := range map[string]io.Reader{
+					"whole":    strings.NewReader(tt.input),
+					"one-byte": iotest.OneByteReader(strings.NewReader(tt.input)),
+				} {
+					ev, err := sse.NewDecoderSize(r, maxSize).Next()
+					switch {
+					case tt.wantData < 0 && !errors.Is(err, sse.ErrTooLarge):
+						t.Errorf("max %d, %s, %d bytes of input: error = %v, want ErrTooLarge", maxSize, name, len(tt.input), err)
+					case tt.wantData >= 0 && (err != nil || len(ev.Data) != tt.wantData):
+						t.Errorf("max %d, %s: got %d bytes of data, %v; want %d", maxSize, name, len(ev.Data), err, tt.wantData)
+					}
+				}
+			}
+		}
+	})
 	t.Run("within limit grows buffer", func(t *testing.T) {
 		t.Parallel()
 		payload := strings.Repeat("y", 10_000)
