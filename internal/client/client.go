@@ -295,6 +295,9 @@ func (c *Client) stream(ctx context.Context, req Request) (Response, *Error) {
 		return resp, c.transportError(ctx, err)
 	}
 	defer func() { _ = httpResp.Body.Close() }()
+	if idle != nil {
+		idle.Reset(c.cfg.IdleTimeout) // the response headers were data too
+	}
 
 	if httpResp.StatusCode != http.StatusOK {
 		resp.End = time.Now()

@@ -377,6 +377,46 @@ func TestTimeouts(t *testing.T) {
 	}
 }
 
+// TestIdleTimeoutCountsHeaders checks that the idle timer restarts when the
+// response headers arrive, not only when body bytes do.
+func TestIdleTimeoutCountsHeaders(t *testing.T) {
+	t.Parallel()
+	pause := func(r *http.Request, d time.Duration) bool {
+		select {
+		case <-time.After(d):
+			return true
+		case <-r.Context().Done():
+			return false
+		}
+	}
+	handler := func(headerDelay time.Duration) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			if !pause(r, headerDelay) {
+				return
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			if !pause(r, 600*time.Millisecond) {
+				return
+			}
+			_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"content\":\"a\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+		}
+	}
+	idle := func(cfg *client.Config) { cfg.IdleTimeout = time.Second }
+	synctest.Test(t, func(t *testing.T) {
+		// Headers after 900ms, the body 600ms later: no gap reaches 1s.
+		if _, err := inmemClient(t, handler(900*time.Millisecond), idle).Stream(t.Context(), userMsg); err != nil {
+			t.Errorf("gaps of 900ms and 600ms with a 1s idle timeout: %v", err)
+		}
+		// Headers after 1.5s: the wait for them counts as idle time.
+		resp, err := inmemClient(t, handler(1500*time.Millisecond), idle).Stream(t.Context(), userMsg)
+		var cerr *client.Error
+		if !errors.As(err, &cerr) || cerr.Class != client.ClassIdleTimeout || resp.End.Sub(resp.Sent) != time.Second {
+			t.Errorf("headers after 1.5s: error %v after %v, want idle_timeout after 1s", err, resp.End.Sub(resp.Sent))
+		}
+	})
+}
+
 func TestCallerCancel(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
