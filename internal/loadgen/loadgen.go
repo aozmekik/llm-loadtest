@@ -96,6 +96,12 @@ func (l Load) Validate() error {
 // Stage is one measured period at a fixed load. It stops issuing requests
 // when Duration has elapsed or Requests have been issued, whichever comes
 // first, then waits for requests in flight to finish.
+//
+// In open-loop mode the Duration bounds the schedule: every arrival
+// scheduled within it is sent, even after Duration when Config.MaxInFlight
+// held it back, so a stage whose cap is saturated runs longer than
+// Duration. Dropping those arrivals would hide the queueing the open loop
+// exists to measure.
 type Stage struct {
 	// Load is the offered load.
 	Load Load
@@ -154,7 +160,8 @@ type Config struct {
 	Prompts Prompts
 	// MaxInFlight caps concurrent open-loop requests; zero means no cap.
 	// When the cap is reached, sending waits, and the wait is included in
-	// latencies because they are measured from the scheduled start.
+	// latencies because they are measured from the scheduled start. The
+	// waiting arrivals are still sent after the stage's Duration.
 	MaxInFlight int
 	// Seed seeds the Poisson arrival process.
 	Seed uint64

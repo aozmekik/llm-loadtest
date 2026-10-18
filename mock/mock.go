@@ -50,7 +50,13 @@ type Config struct {
 	// TTFT is the delay from accepting a request (after waiting for a slot)
 	// to generating its first token.
 	TTFT Dist[time.Duration]
-	// ITL is the delay between consecutive generated tokens.
+	// ITL is the delay between consecutive generated tokens. Token times
+	// are fixed when generation starts, as offsets from the first token,
+	// so if the server's timers fire late on a loaded machine, later
+	// tokens are sent back to back to catch up: the mean gap and the total
+	// generation time follow the configuration, while individual gaps can
+	// be shorter or longer than sampled. A real engine that falls behind
+	// stays behind instead.
 	ITL Dist[time.Duration]
 	// OutputTokens is the number of tokens to generate, capped by the
 	// request's max_tokens. When it yields zero (as the zero Dist does),
