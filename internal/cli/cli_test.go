@@ -148,6 +148,9 @@ func TestRunOpenLoopWithDataset(t *testing.T) {
 	if strings.Contains(out.stderr, "done ") {
 		t.Errorf("--quiet still printed progress:\n%s", out.stderr)
 	}
+	if !strings.Contains(out.stderr, "10 requests cycled through the dataset's 2 prompts") {
+		t.Errorf("no note about repeated prompts:\n%s", out.stderr)
+	}
 	r := readResult(t, jsonPath)
 	if r.Config.Prompts != "dataset prompts.jsonl (2 prompts, shuffled)" || r.Config.MaxInFlight != 1024 {
 		t.Errorf("config = %+v", r.Config)

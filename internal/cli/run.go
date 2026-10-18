@@ -106,6 +106,7 @@ type runPlan struct {
 	outputs []output
 	report  report.Config
 	notes   []string // printed to stderr before the run
+	dataset int      // number of dataset prompts; zero for synthetic prompts
 }
 
 // plan validates the options and resolves them into a runPlan.
@@ -248,7 +249,7 @@ func (o *runOptions) loadPrompts(p *runPlan) (string, error) {
 		d.Shuffle(o.seed)
 		desc = fmt.Sprintf("dataset %s (%d prompts, shuffled)", filepath.Base(o.dataset), d.Len())
 	}
-	p.prompts = d
+	p.prompts, p.dataset = d, d.Len()
 	return desc, nil
 }
 
@@ -403,6 +404,10 @@ func runCommand(ctx context.Context, args []string, env *Env) int {
 		return exitInterrupted
 	}
 
+	if sent := o.warmup + requests(result); p.dataset > 0 && sent > p.dataset {
+		_, _ = fmt.Fprintf(env.Stderr, "note: %d requests cycled through the dataset's %d prompts; "+
+			"a server-side prefix cache can serve repeated prompts and lower their TTFT\n", sent, p.dataset)
+	}
 	if err := report.WriteMarkdown(env.Stdout, result); err != nil {
 		return failure(env, "run", err)
 	}
@@ -458,6 +463,14 @@ func succeeded(r *report.Result) int {
 	n := 0
 	for i := range r.Stages {
 		n += r.Stages[i].Succeeded
+	}
+	return n
+}
+
+func requests(r *report.Result) int {
+	n := 0
+	for i := range r.Stages {
+		n += r.Stages[i].Requests
 	}
 	return n
 }
