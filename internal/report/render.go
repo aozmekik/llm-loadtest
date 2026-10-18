@@ -2,6 +2,7 @@ package report
 
 import (
 	"bufio"
+	"cmp"
 	"encoding/csv"
 	"fmt"
 	"io"
@@ -23,7 +24,7 @@ func WriteMarkdown(w io.Writer, r *Result) error {
 	p("- Model: `%s` at `%s`\n", r.Config.Model, r.Config.BaseURL)
 	p("- Prompts: %s", r.Config.Prompts)
 	if r.Config.MaxTokens > 0 {
-		p("; max_tokens %d", r.Config.MaxTokens)
+		p("; %s %d", cmp.Or(r.Config.MaxTokensField, "max_tokens"), r.Config.MaxTokens)
 	}
 	p("\n- Token counts: %s\n", tokenCountNote(r.Stages))
 	if r.Interrupted {

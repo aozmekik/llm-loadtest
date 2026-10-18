@@ -138,6 +138,24 @@ func TestRequestDefaults(t *testing.T) {
 	}
 }
 
+func TestMaxCompletionTokensField(t *testing.T) {
+	t.Parallel()
+	var gotBody map[string]any
+	ts := serve(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		streamParts("data: [DONE]\n\n")(w, r)
+	}))
+	c := newClient(t, ts.URL, func(cfg *client.Config) {
+		cfg.MaxTokens, cfg.MaxTokensField = 32, client.FieldMaxCompletionTokens
+	})
+	if _, err := c.Stream(t.Context(), client.Request{Messages: userMsg.Messages, MaxTokens: 5}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := gotBody["max_tokens"]; ok || gotBody["max_completion_tokens"] != 5.0 {
+		t.Errorf("body = %v, want max_completion_tokens 5 (the per-request limit) and no max_tokens", gotBody)
+	}
+}
+
 func mustJSON(t *testing.T, v any) string {
 	t.Helper()
 	b, err := json.Marshal(v)
@@ -194,18 +212,18 @@ func TestStreamParsing(t *testing.T) {
 			wantChunks: 3, wantTokens: 3,
 		},
 		{
-			name: "missing [DONE] tolerated after finish_reason",
-			parts: []string{
-				"data: {\"choices\":[{\"delta\":{\"content\":\"a\"},\"finish_reason\":\"stop\"}]}\n\n",
-			},
-			wantChunks: 1, wantTokens: 1, wantFinish: "stop",
-		},
-		{
 			name: "empty tool_calls in the role chunk is not output",
 			parts: []string{
 				"data: {\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[ ]}}]}\n\n",
 				"data: {\"choices\":[{\"delta\":{\"content\":\"a\"},\"finish_reason\":\"stop\"}]}\n\n",
 				"data: [DONE]\n\n",
+			},
+			wantChunks: 1, wantTokens: 1, wantFinish: "stop",
+		},
+		{
+			name: "missing [DONE] tolerated after finish_reason",
+			parts: []string{
+				"data: {\"choices\":[{\"delta\":{\"content\":\"a\"},\"finish_reason\":\"stop\"}]}\n\n",
 			},
 			wantChunks: 1, wantTokens: 1, wantFinish: "stop",
 		},
@@ -540,6 +558,7 @@ func TestNewValidation(t *testing.T) {
 		"unparseable":      {BaseURL: "http://[::1", Model: "m"},
 		"no model":         {BaseURL: "http://host/v1"},
 		"negative timeout": {BaseURL: "http://host/v1", Model: "m", Timeout: -time.Second},
+		"bad token field":  {BaseURL: "http://host/v1", Model: "m", MaxTokensField: "n_predict"},
 	} {
 		if _, err := client.New(cfg); err == nil {
 			t.Errorf("%s: New succeeded, want an error", name)

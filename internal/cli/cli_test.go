@@ -179,6 +179,22 @@ func TestJSONWithoutRecords(t *testing.T) {
 	}
 }
 
+func TestMaxTokensField(t *testing.T) {
+	t.Parallel()
+	ts := mockServer(t, fast)
+	jsonPath := filepath.Join(t.TempDir(), "r.json")
+	out := invoke(t.Context(), t, nil, "run", "--quiet", "--base-url", ts.URL+"/v1", "--model", "m", "--requests", "2",
+		"--max-tokens", "3", "--max-tokens-field", "max_completion_tokens", "--out", jsonPath)
+	if out.code != 0 || !strings.Contains(out.stdout, "; max_completion_tokens 3") {
+		t.Fatalf("exit %d\n%s%s", out.code, out.stdout, out.stderr)
+	}
+	r := readResult(t, jsonPath)
+	// The mock honors max_completion_tokens, so the limit took effect.
+	if r.Config.MaxTokensField != "max_completion_tokens" || r.Stages[0].OutputTokens.Max != 3 {
+		t.Errorf("config %+v, output tokens %+v", r.Config, r.Stages[0].OutputTokens)
+	}
+}
+
 func TestSecretsAreNeverWritten(t *testing.T) {
 	t.Parallel()
 	const (
@@ -283,6 +299,7 @@ func TestRunUsageErrors(t *testing.T) {
 		"null extra body":    append(base, "--extra-body", "null"),
 		"bad header":         append(base, "--header", "no colon"),
 		"negative tokens":    append(base, "--max-tokens", "-1"),
+		"bad token field":    append(base, "--max-tokens-field", "n_predict"),
 		"negative duration":  append(base, "--duration", "-1s"),
 		"bad temperature":    append(base, "--temperature", "hot"),
 		"positional":         append(base, "extra"),

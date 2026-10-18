@@ -33,24 +33,43 @@ type Result struct {
 }
 
 // Config records the run settings that shape the results. It deliberately
-// holds no secrets: the API key is never stored and only header names are
-// kept.
+// holds no secrets: the API key is never stored, the base URL is redacted
+// and only header names and extra body keys are kept.
 type Config struct {
-	BaseURL      string   `json:"base_url"`
-	Model        string   `json:"model"`
-	Prompts      string   `json:"prompts"`
-	MaxTokens    int      `json:"max_tokens,omitempty"`
-	Temperature  *float64 `json:"temperature,omitempty"`
-	IncludeUsage bool     `json:"include_usage"`
-	HeaderNames  []string `json:"header_names,omitempty"`
-	ExtraBody    []string `json:"extra_body_keys,omitempty"`
-	Duration     string   `json:"stage_duration,omitempty"`
-	Requests     int      `json:"stage_requests,omitempty"`
-	Warmup       int      `json:"warmup_requests,omitempty"`
-	Timeout      string   `json:"timeout,omitempty"`
-	IdleTimeout  string   `json:"idle_timeout,omitempty"`
-	MaxInFlight  int      `json:"max_in_flight,omitempty"`
-	Seed         uint64   `json:"seed"`
+	// BaseURL is the API root, with credentials and query values redacted.
+	BaseURL string `json:"base_url"`
+	// Model is the requested model name.
+	Model string `json:"model"`
+	// Prompts describes the prompt source: synthetic prompts and their
+	// length, or a dataset file and its size.
+	Prompts string `json:"prompts"`
+	// MaxTokens is the token limit of each request; zero if omitted.
+	MaxTokens int `json:"max_tokens,omitempty"`
+	// MaxTokensField is the request field that carried MaxTokens, when it
+	// was not "max_tokens".
+	MaxTokensField string `json:"max_tokens_field,omitempty"`
+	// Temperature is the sampling temperature, or nil for the server's.
+	Temperature *float64 `json:"temperature,omitempty"`
+	// IncludeUsage reports whether stream_options.include_usage was sent.
+	IncludeUsage bool `json:"include_usage"`
+	// HeaderNames lists the extra request headers, without their values.
+	HeaderNames []string `json:"header_names,omitempty"`
+	// ExtraBody lists the keys merged into the request body.
+	ExtraBody []string `json:"extra_body_keys,omitempty"`
+	// Duration is each stage's issuing period, e.g. "30s".
+	Duration string `json:"stage_duration,omitempty"`
+	// Requests is each stage's request limit.
+	Requests int `json:"stage_requests,omitempty"`
+	// Warmup is the number of warmup requests, which are not in Stages.
+	Warmup int `json:"warmup_requests,omitempty"`
+	// Timeout and IdleTimeout are the per-request timeouts.
+	Timeout     string `json:"timeout,omitempty"`
+	IdleTimeout string `json:"idle_timeout,omitempty"`
+	// MaxInFlight is the open-loop concurrency cap.
+	MaxInFlight int `json:"max_in_flight,omitempty"`
+	// Seed seeded the synthetic prompts, dataset shuffling and Poisson
+	// arrivals.
+	Seed uint64 `json:"seed"`
 }
 
 // TokenCounts tells how output token counts were obtained.

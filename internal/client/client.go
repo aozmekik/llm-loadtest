@@ -64,8 +64,12 @@ type Config struct {
 	Headers http.Header
 	// UserAgent is sent as the User-Agent header when non-empty.
 	UserAgent string
-	// MaxTokens is sent as "max_tokens" when positive.
+	// MaxTokens is sent as the token limit when positive.
 	MaxTokens int
+	// MaxTokensField names the request field that carries the token limit:
+	// FieldMaxTokens (the default when empty) or FieldMaxCompletionTokens,
+	// which OpenAI's reasoning models require.
+	MaxTokensField string
 	// Temperature is sent as "temperature" when non-nil.
 	Temperature *float64
 	// IncludeUsage requests a final usage chunk with exact token counts via
@@ -87,6 +91,15 @@ type Config struct {
 	// a GET (301 to 303) or send custom key headers to another host.
 	HTTPClient *http.Client
 }
+
+// Token limit fields of the chat-completions API.
+const (
+	// FieldMaxTokens is the token limit field most servers accept.
+	FieldMaxTokens = "max_tokens"
+	// FieldMaxCompletionTokens is the newer OpenAI field, required by its
+	// reasoning models.
+	FieldMaxCompletionTokens = "max_completion_tokens"
+)
 
 // Response holds the timing and token counts of one streamed completion.
 // Times carry monotonic clock readings.
@@ -146,6 +159,13 @@ func New(cfg Config) (*Client, error) {
 	}
 	if cfg.Timeout < 0 || cfg.IdleTimeout < 0 {
 		return nil, errors.New("timeouts must not be negative")
+	}
+	switch cfg.MaxTokensField {
+	case "":
+		cfg.MaxTokensField = FieldMaxTokens
+	case FieldMaxTokens, FieldMaxCompletionTokens:
+	default:
+		return nil, fmt.Errorf("token limit field %q: want %q or %q", cfg.MaxTokensField, FieldMaxTokens, FieldMaxCompletionTokens)
 	}
 
 	header := http.Header{}
@@ -329,7 +349,7 @@ func (c *Client) body(req Request) ([]byte, error) {
 	body["model"] = c.cfg.Model
 	body["messages"] = req.Messages
 	if n := cmp.Or(req.MaxTokens, c.cfg.MaxTokens); n > 0 {
-		body["max_tokens"] = n
+		body[c.cfg.MaxTokensField] = n
 	}
 	if c.cfg.Temperature != nil {
 		body["temperature"] = *c.cfg.Temperature

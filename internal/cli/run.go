@@ -31,6 +31,7 @@ type runOptions struct {
 	shuffle                   bool
 	inputTokens               int
 	maxTokens                 int
+	maxTokensField            string
 	temperature               optionalFloat
 	extraBody                 string
 	includeUsage              bool
@@ -56,7 +57,9 @@ func (o *runOptions) register(fs *flag.FlagSet) {
 	fs.StringVar(&o.dataset, "dataset", "", "JSONL `file` of prompts, one {\"prompt\": ...} or {\"messages\": [...]} per line")
 	fs.BoolVar(&o.shuffle, "shuffle", false, "shuffle the dataset, seeded by --seed")
 	fs.IntVar(&o.inputTokens, "input-tokens", 256, "approximate length of synthetic prompts when no --dataset is given")
-	fs.IntVar(&o.maxTokens, "max-tokens", 256, "max_tokens of each request; 0 omits the field")
+	fs.IntVar(&o.maxTokens, "max-tokens", 256, "token limit of each request; 0 omits the field")
+	fs.StringVar(&o.maxTokensField, "max-tokens-field", client.FieldMaxTokens,
+		"request `field` for the token limit: max_tokens, or max_completion_tokens for OpenAI reasoning models")
 	fs.Var(&o.temperature, "temperature", "sampling temperature (default: the server's)")
 	fs.StringVar(&o.extraBody, "extra-body", "", "JSON object merged into every request body, e.g. '{\"ignore_eos\": true}'")
 	fs.BoolVar(&o.includeUsage, "include-usage", true, "ask for exact token counts with stream_options.include_usage")
@@ -114,17 +117,18 @@ func (o *runOptions) plan(env *Env) (*runPlan, error) {
 		apiKey = env.Getenv(o.apiKeyEnv)
 	}
 	p.client = client.Config{
-		BaseURL:      o.baseURL,
-		Model:        o.model,
-		APIKey:       apiKey,
-		Headers:      o.headers.h,
-		UserAgent:    "llm-loadtest/" + env.Version,
-		MaxTokens:    o.maxTokens,
-		Temperature:  o.temperature.v,
-		IncludeUsage: o.includeUsage,
-		ExtraBody:    extra,
-		Timeout:      o.timeout,
-		IdleTimeout:  o.idleTimeout,
+		BaseURL:        o.baseURL,
+		Model:          o.model,
+		APIKey:         apiKey,
+		Headers:        o.headers.h,
+		UserAgent:      "llm-loadtest/" + env.Version,
+		MaxTokens:      o.maxTokens,
+		MaxTokensField: o.maxTokensField,
+		Temperature:    o.temperature.v,
+		IncludeUsage:   o.includeUsage,
+		ExtraBody:      extra,
+		Timeout:        o.timeout,
+		IdleTimeout:    o.idleTimeout,
 	}
 
 	if err := o.buildStages(p); err != nil {
@@ -153,6 +157,9 @@ func (o *runOptions) plan(env *Env) (*runPlan, error) {
 	}
 	if d := p.stages[0].Duration; d > 0 {
 		p.report.Duration = d.String()
+	}
+	if o.maxTokensField != client.FieldMaxTokens {
+		p.report.MaxTokensField = o.maxTokensField
 	}
 	if o.timeout > 0 {
 		p.report.Timeout = o.timeout.String()
