@@ -19,17 +19,18 @@ type progressPrinter struct {
 	w   io.Writer
 	tty bool
 
-	mu     sync.Mutex
-	label  string
-	last   loadgen.Progress
-	logged time.Duration // elapsed time of the last non-TTY line
+	mu      sync.Mutex
+	label   string
+	last    loadgen.Progress
+	logged  time.Duration // elapsed time of the last non-TTY line
+	printed bool          // the last snapshot already has its own non-TTY line
 }
 
 // begin starts a new stage and labels its progress lines.
 func (p *progressPrinter) begin(label string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.label, p.last, p.logged = label, loadgen.Progress{}, 0
+	p.label, p.last, p.logged, p.printed = label, loadgen.Progress{}, 0, false
 }
 
 // update is the loadgen.Config.OnProgress callback.
@@ -41,18 +42,23 @@ func (p *progressPrinter) update(pr loadgen.Progress) {
 		_, _ = fmt.Fprintf(p.w, "\r\x1b[2K%s", formatProgress(p.label, pr))
 		return
 	}
-	if pr.Elapsed-p.logged >= nonTTYInterval {
+	p.printed = pr.Elapsed-p.logged >= nonTTYInterval
+	if p.printed {
 		_, _ = fmt.Fprintln(p.w, formatProgress(p.label, pr))
 		p.logged = pr.Elapsed
 	}
 }
 
-// end prints the stage's final progress line.
+// end prints the stage's final progress line, unless the final snapshot
+// was just logged on a line of its own.
 func (p *progressPrinter) end() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.tty {
+	switch {
+	case p.tty:
 		_, _ = fmt.Fprint(p.w, "\r\x1b[2K")
+	case p.printed:
+		return
 	}
 	_, _ = fmt.Fprintln(p.w, formatProgress(p.label, p.last))
 }

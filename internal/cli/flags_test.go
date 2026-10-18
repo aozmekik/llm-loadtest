@@ -125,4 +125,16 @@ func TestProgressPrinter(t *testing.T) {
 	if lines := strings.Split(strings.TrimSpace(log.String()), "\n"); len(lines) != 3 || !strings.Contains(lines[2], "25.0s") {
 		t.Errorf("log output:\n%s", log.String())
 	}
+
+	// A final snapshot 10s or more after the last line is logged by update;
+	// end must not print it again.
+	log.Reset()
+	p.begin("stage")
+	for _, s := range []int{4, 10, 15, 21} {
+		p.update(loadgen.Progress{Elapsed: time.Duration(s) * time.Second, Completed: s})
+	}
+	p.end()
+	if lines := strings.Split(strings.TrimSpace(log.String()), "\n"); len(lines) != 2 || !strings.Contains(lines[1], "21.0s") {
+		t.Errorf("final line printed twice or not at all:\n%s", log.String())
+	}
 }
