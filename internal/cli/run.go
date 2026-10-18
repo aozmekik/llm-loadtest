@@ -208,11 +208,15 @@ func (o *runOptions) apiKeyVar(u *url.URL) string {
 }
 
 // keyNotes says where the API key goes, and warns when the named variable
-// is empty or when the key would cross the network without TLS.
+// is empty or when the key would cross the network without TLS. A remote
+// server that gets no key is mentioned too, since a forgotten
+// --api-key-env otherwise surfaces only as HTTP 401 errors.
 func keyNotes(u *url.URL, keyVar, apiKey string) []string {
 	switch {
 	case u == nil:
 		return nil
+	case keyVar == "" && !isLoopback(u.Hostname()):
+		return []string{"no API key is sent; use --api-key-env NAME if the server needs one"}
 	case keyVar != "" && apiKey == "":
 		return []string{fmt.Sprintf("warning: $%s is empty or unset; no API key is sent", keyVar)}
 	case apiKey != "" && u.Scheme == "http" && !isLoopback(u.Hostname()):

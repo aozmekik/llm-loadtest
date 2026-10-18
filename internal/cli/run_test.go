@@ -35,13 +35,14 @@ func TestAPIKeySelection(t *testing.T) {
 		note    string // substring of the only note, or "" for no note
 	}{
 		{"default key stays home", []string{"--base-url", "http://localhost:8000/v1"}, "", ""},
-		{"default key not sent to third parties", []string{"--base-url", "https://openrouter.ai/api/v1"}, "", ""},
+		{"default key not sent to third parties", []string{"--base-url", "https://openrouter.ai/api/v1"}, "", "no API key is sent"},
 		{"default key for OpenAI", []string{"--base-url", "https://API.openai.com/v1"}, "sk-openai-key", "from $OPENAI_API_KEY to API.openai.com"},
 		{"named key to loopback", []string{"--base-url", "http://127.0.0.1:8000/v1", "--api-key-env", "VLLM_KEY"}, "vllm-key", "sending the API key"},
 		{"named key over plain http", []string{"--base-url", "http://10.0.0.5:8000/v1", "--api-key-env", "VLLM_KEY"}, "vllm-key", "unencrypted (http) to 10.0.0.5:8000"},
 		{"named key over https", []string{"--base-url", "https://gpu.example.com/v1", "--api-key-env", "VLLM_KEY"}, "vllm-key", "sending the API key"},
 		{"named variable unset", []string{"--base-url", "https://gpu.example.com/v1", "--api-key-env", "NOPE"}, "", "$NOPE is empty or unset"},
-		{"empty name disables the default", []string{"--base-url", "https://api.openai.com/v1", "--api-key-env", ""}, "", ""},
+		{"empty name disables the default", []string{"--base-url", "https://api.openai.com/v1", "--api-key-env", ""}, "", "no API key is sent"},
+		{"no key to loopback needs no note", []string{"--base-url", "http://[::1]:8000/v1", "--api-key-env", ""}, "", ""},
 	}
 	for _, tt := range tests {
 		p := planFor(t, env, tt.args...)
