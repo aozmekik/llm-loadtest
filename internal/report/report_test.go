@@ -91,6 +91,46 @@ func TestNewStage(t *testing.T) {
 	}
 }
 
+// TestCanceledAndTimedOut checks the two kinds of request the report keeps
+// out of its distributions but must still account for.
+func TestCanceledAndTimedOut(t *testing.T) {
+	t.Parallel()
+	res := &loadgen.StageResult{
+		Stage:   loadgen.Stage{Load: loadgen.Load{Mode: loadgen.Closed, Concurrency: 4}, Requests: 4},
+		Elapsed: time.Second,
+		ITL:     stats.NewSketch(loadgen.ITLAccuracy),
+		Records: []loadgen.Record{
+			{Seq: 0, TTFT: 100 * ms, E2E: 200 * ms, OutputTokens: 1, Chunks: 1, FinishReason: "stop"},
+			{Seq: 1, E2E: time.Second, Err: &client.Error{Class: client.ClassTimeout, Message: "no complete response within 1s"}},
+			{Seq: 2, E2E: 900 * ms, Err: &client.Error{Class: client.ClassCanceled, Message: "request canceled"}},
+			{Seq: 3, E2E: 900 * ms, Err: &client.Error{Class: client.ClassCanceled, Message: "request canceled"}},
+		},
+	}
+	st := report.NewStage(res)
+	if st.Requests != 4 || st.Succeeded != 1 || st.Failed != 1 || st.Canceled != 2 || st.Errors["canceled"] != 0 {
+		t.Errorf("requests/succeeded/failed/canceled = %d/%d/%d/%d, errors %v", st.Requests, st.Succeeded, st.Failed, st.Canceled, st.Errors)
+	}
+	if st.ErrorRate() != 0.5 || st.TimedOut() != 1 {
+		t.Errorf("ErrorRate = %v, TimedOut = %d; want 0.5 (canceled left out) and 1", st.ErrorRate(), st.TimedOut())
+	}
+	var buf bytes.Buffer
+	r := &report.Result{SchemaVersion: report.SchemaVersion, Interrupted: true, Stages: []report.Stage{st}}
+	if err := report.WriteMarkdown(&buf, r); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"the 2 requests in flight were canceled", "Canceled by the interrupt: 2 requests",
+		"The 1 timed-out requests are not in the distributions above",
+		// One request with one token has no ITL gap and no TPOT.
+		"| concurrency=4 | 1 | 1 | 1.00 | 1.00 | 100 | 100 | - | - | - | 200 | 200 |",
+		"| ITL (ms) | - | - | - | - | - | - |",
+	} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("Markdown lacks %q:\n%s", want, buf.String())
+		}
+	}
+}
+
 func TestErrorClassesOrder(t *testing.T) {
 	t.Parallel()
 	s := report.Stage{Errors: map[string]int{"timeout": 1, "http_500": 3, "connection": 1}}

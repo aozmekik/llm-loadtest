@@ -28,7 +28,11 @@ func WriteMarkdown(w io.Writer, r *Result) error {
 	}
 	p("\n- Token counts: %s\n", tokenCountNote(r.Stages))
 	if r.Interrupted {
-		p("- **Interrupted**: the run was stopped early; the last stage is partial.\n")
+		p("- **Interrupted**: the run was stopped early; the last stage is partial")
+		if n := canceled(r.Stages); n > 0 {
+			p(", and the %d requests in flight were canceled and left out of the counts and distributions", n)
+		}
+		p(".\n")
 	}
 
 	p("\n| Load | OK | Errors | Req/s | Out tok/s | TTFT p50 | TTFT p99 | ITL p50 | ITL p99 | TPOT p50 | E2E p50 | E2E p99 |\n")
@@ -37,8 +41,8 @@ func WriteMarkdown(w io.Writer, r *Result) error {
 		s := &r.Stages[i]
 		p("| %s | %d | %d | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n",
 			s.Load, s.Succeeded, s.Failed, num(s.RequestsPerSecond), num(s.OutputTokensPerSecond),
-			num(s.TTFT.P50), num(s.TTFT.P99), num(s.ITL.P50), num(s.ITL.P99),
-			num(s.TPOT.P50), num(s.E2E.P50), num(s.E2E.P99))
+			stat(&s.TTFT, s.TTFT.P50), stat(&s.TTFT, s.TTFT.P99), stat(&s.ITL, s.ITL.P50), stat(&s.ITL, s.ITL.P99),
+			stat(&s.TPOT, s.TPOT.P50), stat(&s.E2E, s.E2E.P50), stat(&s.E2E, s.E2E.P99))
 	}
 	p("\nLatencies in ms. TTFT and E2E are measured from each request's scheduled start; " +
 		"ITL percentiles are sketch estimates within 1%%.\n")
@@ -75,11 +79,34 @@ func WriteMarkdown(w io.Writer, r *Result) error {
 			}
 			p("\nErrors: %s\n", strings.Join(parts, ", "))
 		}
+		if n := s.TimedOut(); n > 0 {
+			p("\nThe %d timed-out requests are not in the distributions above, so they understate the tail: "+
+				"those requests took at least as long as the timeout.\n", n)
+		}
+		if s.Canceled > 0 {
+			p("\nCanceled by the interrupt: %d requests in flight, not counted as errors.\n", s.Canceled)
+		}
 	}
 	if err := bw.Flush(); err != nil {
 		return fmt.Errorf("write Markdown: %w", err)
 	}
 	return nil
+}
+
+// stat formats one statistic of sm, or "-" when sm has no samples.
+func stat(sm *stats.Summary, v float64) string {
+	if sm.Count == 0 {
+		return "-"
+	}
+	return num(v)
+}
+
+func canceled(stages []Stage) int {
+	n := 0
+	for i := range stages {
+		n += stages[i].Canceled
+	}
+	return n
 }
 
 // tokenCountNote says how output tokens were counted across all stages.

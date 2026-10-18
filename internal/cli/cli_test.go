@@ -276,8 +276,14 @@ func TestRunInterrupted(t *testing.T) {
 	if out.code != 130 {
 		t.Fatalf("exit %d, want 130\n%s", out.code, out.stderr)
 	}
-	if !strings.Contains(out.stdout, "**Interrupted**") || !strings.Contains(out.stdout, "2 x canceled") || strings.Contains(out.stdout, "concurrency=4") {
-		t.Errorf("partial report:\n%s", out.stdout)
+	// The two requests in flight were canceled: neither successes nor errors.
+	for _, want := range []string{"**Interrupted**", "the 2 requests in flight were canceled", "| concurrency=2 | 0 | 0 |"} {
+		if !strings.Contains(out.stdout, want) {
+			t.Errorf("partial report lacks %q:\n%s", want, out.stdout)
+		}
+	}
+	if strings.Contains(out.stdout, "concurrency=4") {
+		t.Errorf("the second stage should not have started:\n%s", out.stdout)
 	}
 }
 

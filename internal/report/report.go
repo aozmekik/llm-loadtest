@@ -13,6 +13,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/aozmekik/llm-loadtest/internal/client"
 	"github.com/aozmekik/llm-loadtest/internal/loadgen"
 	"github.com/aozmekik/llm-loadtest/internal/stats"
 )
@@ -84,16 +85,23 @@ type TokenCounts struct {
 // Stage is the aggregated result of one stage. Latencies are in
 // milliseconds and, except ITL and TPOT, measured from each request's
 // scheduled start. Distributions cover successful requests only; SendLag
-// covers all requests.
+// covers all requests. A summary with Count zero is empty, and its other
+// fields are zero rather than measurements.
 type Stage struct {
-	Load            loadgen.Load      `json:"load"`
-	DurationSeconds float64           `json:"duration_s"`
-	Requests        int               `json:"requests"`
-	Succeeded       int               `json:"succeeded"`
-	Failed          int               `json:"failed"`
-	Errors          map[string]int    `json:"errors,omitempty"`
-	ErrorSamples    map[string]string `json:"error_samples,omitempty"`
-	TokenCounts     TokenCounts       `json:"token_counts"`
+	Load            loadgen.Load `json:"load"`
+	DurationSeconds float64      `json:"duration_s"`
+	// Requests counts every request issued: Succeeded + Failed + Canceled.
+	Requests  int `json:"requests"`
+	Succeeded int `json:"succeeded"`
+	Failed    int `json:"failed"`
+	// Canceled counts requests that were in flight when the run was
+	// interrupted. They are neither successes nor errors.
+	Canceled int `json:"canceled,omitempty"`
+	// Errors counts failed requests by class, and ErrorSamples holds the
+	// first message of each class.
+	Errors       map[string]int    `json:"errors,omitempty"`
+	ErrorSamples map[string]string `json:"error_samples,omitempty"`
+	TokenCounts  TokenCounts       `json:"token_counts"`
 	// RequestsPerSecond is successful requests per second of stage time.
 	RequestsPerSecond float64 `json:"requests_per_s"`
 	// OutputTokensPerSecond is the output tokens of successful requests
@@ -151,6 +159,10 @@ func NewStage(res *loadgen.StageResult) Stage {
 		rec := &res.Records[i]
 		st.Records = append(st.Records, newRecord(rec))
 		lag = append(lag, ms(rec.SendLag))
+		if rec.Err != nil && rec.Err.Class == client.ClassCanceled {
+			st.Canceled++
+			continue
+		}
 		if rec.Err != nil {
 			st.Failed++
 			class := string(rec.Err.Class)
@@ -228,12 +240,21 @@ func newRecord(rec *loadgen.Record) Record {
 	return out
 }
 
-// ErrorRate returns the failed fraction of the stage's requests.
+// ErrorRate returns the failed fraction of the stage's finished requests,
+// leaving out those canceled by an interrupt.
 func (s *Stage) ErrorRate() float64 {
-	if s.Requests == 0 {
+	finished := s.Succeeded + s.Failed
+	if finished == 0 {
 		return 0
 	}
-	return float64(s.Failed) / float64(s.Requests)
+	return float64(s.Failed) / float64(finished)
+}
+
+// TimedOut returns the number of requests that failed with a timeout or an
+// idle timeout. They are left out of the latency distributions, which
+// therefore understate the tail.
+func (s *Stage) TimedOut() int {
+	return s.Errors[string(client.ClassTimeout)] + s.Errors[string(client.ClassIdleTimeout)]
 }
 
 // ErrorClasses returns the stage's error classes, most frequent first.
