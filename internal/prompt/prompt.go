@@ -127,21 +127,31 @@ const instruction = "\n\nContinue the list of words above. Write as many more wo
 // o200k_base encodings.
 const instructionTokens = 17
 
+// MinSyntheticTokens is the shortest synthetic prompt: the closing
+// instruction plus one word.
+const MinSyntheticTokens = instructionTokens + 1
+
 // Synthetic generates distinct prompts of a target token length from a
 // vocabulary of common English words. Every word is a single token in the
-// cl100k_base and o200k_base encodings, where the prompt text is exactly
-// the target length (verified with tiktoken; see the README). Other
+// cl100k_base and o200k_base encodings, both at the start of the text and
+// after a space, so the prompt text is exactly the target length there;
+// scripts/prompttokens checks this with tiktoken. Other
 // tokenizers and the model's chat template change the count; the
 // server-reported prompt token count is the ground truth.
+//
+// Prompts are distinct within a run, but the same seed always produces the
+// same sequence, so two runs with one seed send the same prompts.
 type Synthetic struct {
 	inputTokens int
 	seed        uint64
 }
 
-// NewSynthetic returns a source of prompts of about inputTokens tokens.
+// NewSynthetic returns a source of prompts of inputTokens tokens, which must
+// be at least MinSyntheticTokens.
 func NewSynthetic(inputTokens int, seed uint64) (*Synthetic, error) {
-	if inputTokens < 1 {
-		return nil, errors.New("synthetic prompt length must be at least 1 token")
+	if inputTokens < MinSyntheticTokens {
+		return nil, fmt.Errorf("synthetic prompts need at least %d input tokens, the length of the closing instruction plus one word; "+
+			"use a dataset for shorter prompts", MinSyntheticTokens)
 	}
 	return &Synthetic{inputTokens: inputTokens, seed: seed}, nil
 }
@@ -150,7 +160,7 @@ func NewSynthetic(inputTokens int, seed uint64) (*Synthetic, error) {
 // produce the same prompt.
 func (s *Synthetic) Prompt(i uint64) client.Request {
 	rng := rand.New(rand.NewPCG(s.seed, i))
-	n := max(s.inputTokens-instructionTokens, 1)
+	n := s.inputTokens - instructionTokens
 	var b strings.Builder
 	b.Grow(n * 7)
 	for j := range n {
@@ -163,35 +173,34 @@ func (s *Synthetic) Prompt(i uint64) client.Request {
 	return client.Request{Messages: []client.Message{{Role: "user", Content: b.String()}}}
 }
 
-// String describes the source for reports.
+// String describes the source for reports. The seed is reported
+// separately.
 func (s *Synthetic) String() string {
-	return fmt.Sprintf("synthetic (~%d input tokens, seed %d)", s.inputTokens, s.seed)
+	return fmt.Sprintf("synthetic (~%d input tokens)", s.inputTokens)
 }
 
 var vocabulary = strings.Fields(`
-able about above after again against air all also always among and animal
-answer any area around away back ball because become before begin behind best
-better between big bird black blue boat body book both bring build but call came
-car carry cause center change city class clear close cold come common could
-country course cut dark day deep did different does dog done door down draw
-dry during each early earth east eat end enough even ever every eye face fact
-fall family far farm fast father feel field fill find fire first fish five
-follow food foot force form found four free friend from front full game gave
-general girl give glass gold good great green ground group grow half hand happy
-hard have head hear heart heat help here high hold home horse hot hour house
-idea inch island just keep kind king land large last late learn leave left
-less letter life light line list little live long look love low machine main
-make man many map mark measure might mile mind minute miss money moon more
-morning most mother mountain move much music must name near need never new
-next night north note nothing notice number object ocean office often old once
-only open order other over page paper part pass people perhaps person picture
-piece place plan plant play point power present pull question quick rain read
-ready real record red remember rest right river road rock room round rule run
-same school sea second see serve set shape ship short show side simple since
-sing size sleep slow small snow some song soon sound south space speak special
-spring stand star start state step still stone stop story street strong study
-such summer sun sure table take talk teach ten test than that their them then
-there these thing think three through time together too took town tree true
-turn under unit until upon very voice walk wall want warm watch water wave
-weather week well west what wheel where which while white whole wide wind
-window winter with wood word work world write year young`)
+able about above after again against air all also always among and animal answer
+any area around away back ball because before begin best better between big bird
+black blue boat body book both bring build but call came car carry cause center
+change city class clear close cold come common could country course cut dark day
+deep did different does dog done door down draw dry during each early earth east
+eat end even ever every eye face fact fall family far farm fast father feel
+field fill find fire first fish five follow food foot force form found four free
+friend from front full game general girl give glass gold good great green ground
+group grow half hand happy hard have head hear heart heat help here high hold
+home horse hot hour house idea inch just keep kind king land large last late
+learn leave left less letter life light line list little live long look love low
+machine main make man many map mark measure might mile mind minute miss money
+moon more most mother move much music must name near need never new next night
+north note nothing notice number object office often old once only open order
+other over page paper part pass people perhaps person picture piece place plan
+plant play point power present pull question quick rain read ready real record
+red remember rest right river road rock room round rule run same school sea
+second see serve set shape ship short show side simple since sing size sleep
+slow small snow some song soon sound south space special spring stand star start
+state step still stone stop story street strong study such summer sun sure table
+take talk ten test than that their them then there these thing think three
+through time too town tree true turn under unit until upon very voice walk wall
+want warm watch water wave weather week well west what wheel where which while
+white whole wide wind window winter with wood word work world write year young`)

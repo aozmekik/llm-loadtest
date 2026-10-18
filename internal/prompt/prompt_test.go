@@ -131,14 +131,20 @@ func TestSynthetic(t *testing.T) {
 	if other.Prompt(0).Messages[0].Content == a.Messages[0].Content {
 		t.Error("different seeds produced the same prompt")
 	}
-	tiny, _ := prompt.NewSynthetic(1, 1)
-	if body, _, _ := strings.Cut(tiny.Prompt(0).Messages[0].Content, "\n\n"); len(strings.Fields(body)) != 1 {
-		t.Error("a 1-token target should still produce one word")
+	shortest, err := prompt.NewSynthetic(prompt.MinSyntheticTokens, 1)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := prompt.NewSynthetic(0, 1); err == nil {
-		t.Error("NewSynthetic(0) succeeded")
+	if body, _, _ := strings.Cut(shortest.Prompt(0).Messages[0].Content, "\n\n"); len(strings.Fields(body)) != 1 {
+		t.Errorf("the shortest prompt should hold one word before the instruction: %q", body)
 	}
-	if !strings.Contains(s.String(), "256") {
+	// Shorter targets would silently produce longer prompts.
+	for _, n := range []int{0, 1, prompt.MinSyntheticTokens - 1} {
+		if _, err := prompt.NewSynthetic(n, 1); err == nil {
+			t.Errorf("NewSynthetic(%d) succeeded", n)
+		}
+	}
+	if s.String() != "synthetic (~256 input tokens)" {
 		t.Errorf("String() = %q", s.String())
 	}
 }

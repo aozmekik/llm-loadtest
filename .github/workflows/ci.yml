@@ -71,3 +71,21 @@ jobs:
         with:
           version: "~> v2"
           args: check
+
+  prompt-tokens:
+    name: Synthetic prompt lengths (tiktoken)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Count tokens in cl100k_base and o200k_base
+        shell: bash # -o pipefail, so a failing generator fails the step
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r scripts/prompttokens/requirements.txt
+          go run ./scripts/prompttokens -seeds 10 -count 50 | .venv/bin/python scripts/prompttokens/check.py

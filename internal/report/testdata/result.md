@@ -1,7 +1,7 @@
 ## llm-loadtest results
 
 - Model: `demo` at `http://localhost:8000/v1`
-- Prompts: synthetic (~256 input tokens, seed 1); max_tokens 128
+- Prompts: synthetic (~256 input tokens); max_tokens 128; seed 1
 - Token counts: approximate for 4 of 8 successful requests: the server sent no usage, so tokens were estimated by counting content chunks (a chunk can hold several tokens)
 
 | Load | OK | Errors | Req/s | Out tok/s | TTFT p50 | TTFT p99 | ITL p50 | ITL p99 | TPOT p50 | E2E p50 | E2E p99 |

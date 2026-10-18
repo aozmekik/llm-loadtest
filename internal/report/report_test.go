@@ -149,7 +149,7 @@ func sampleResult() *report.Result {
 		Tool:          "llm-loadtest test",
 		StartedAt:     time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
 		Config: report.Config{
-			BaseURL: "http://localhost:8000/v1", Model: "demo", Prompts: "synthetic (~256 input tokens, seed 1)",
+			BaseURL: "http://localhost:8000/v1", Model: "demo", Prompts: "synthetic (~256 input tokens)",
 			MaxTokens: 128, Temperature: &temp, IncludeUsage: true, HeaderNames: []string{"X-Tenant"}, Seed: 1,
 		},
 		Stages: []report.Stage{

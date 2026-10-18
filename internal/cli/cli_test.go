@@ -149,7 +149,7 @@ func TestRunOpenLoopWithDataset(t *testing.T) {
 		t.Errorf("--quiet still printed progress:\n%s", out.stderr)
 	}
 	r := readResult(t, jsonPath)
-	if !strings.Contains(r.Config.Prompts, "prompts.jsonl (2 prompts, shuffled") || r.Config.MaxInFlight != 1024 {
+	if r.Config.Prompts != "dataset prompts.jsonl (2 prompts, shuffled)" || r.Config.MaxInFlight != 1024 {
 		t.Errorf("config = %+v", r.Config)
 	}
 	if len(r.Stages[0].Records) != 10 {
@@ -312,6 +312,7 @@ func TestRunUsageErrors(t *testing.T) {
 		"unknown flag":       append(base, "--nope"),
 		"missing dataset":    append(base, "--dataset", filepath.Join(dir, "missing.jsonl")),
 		"zero input tokens":  append(base, "--input-tokens", "0"),
+		"too few tokens":     append(base, "--input-tokens", "17"),
 		"negative timeout":   append(base, "--timeout", "-1s"),
 		"negative in-flight": append(base, "--max-in-flight", "-1"),
 	}

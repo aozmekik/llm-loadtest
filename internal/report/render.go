@@ -26,6 +26,7 @@ func WriteMarkdown(w io.Writer, r *Result) error {
 	if r.Config.MaxTokens > 0 {
 		p("; %s %d", cmp.Or(r.Config.MaxTokensField, "max_tokens"), r.Config.MaxTokens)
 	}
+	p("; seed %d", r.Config.Seed)
 	p("\n- Token counts: %s\n", tokenCountNote(r.Stages))
 	if r.Interrupted {
 		p("- **Interrupted**: the run was stopped early; the last stage is partial")

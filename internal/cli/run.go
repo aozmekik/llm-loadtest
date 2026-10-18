@@ -56,7 +56,8 @@ func (o *runOptions) register(fs *flag.FlagSet) {
 	fs.Var(&o.headers, "header", "extra request `header` \"Name: value\" (repeatable); only names are saved")
 	fs.StringVar(&o.dataset, "dataset", "", "JSONL `file` of prompts, one {\"prompt\": ...} or {\"messages\": [...]} per line")
 	fs.BoolVar(&o.shuffle, "shuffle", false, "shuffle the dataset, seeded by --seed")
-	fs.IntVar(&o.inputTokens, "input-tokens", 256, "approximate length of synthetic prompts when no --dataset is given")
+	fs.IntVar(&o.inputTokens, "input-tokens", 256,
+		"length of synthetic prompts when no --dataset is given, at least 18 (exact for the cl100k_base and o200k_base encodings)")
 	fs.IntVar(&o.maxTokens, "max-tokens", 256, "token limit of each request; 0 omits the field")
 	fs.StringVar(&o.maxTokensField, "max-tokens-field", client.FieldMaxTokens,
 		"request `field` for the token limit: max_tokens, or max_completion_tokens for OpenAI reasoning models")
@@ -189,7 +190,7 @@ func (o *runOptions) loadPrompts(p *runPlan) (string, error) {
 	desc := fmt.Sprintf("dataset %s (%d prompts)", filepath.Base(o.dataset), d.Len())
 	if o.shuffle {
 		d.Shuffle(o.seed)
-		desc = fmt.Sprintf("dataset %s (%d prompts, shuffled with seed %d)", filepath.Base(o.dataset), d.Len(), o.seed)
+		desc = fmt.Sprintf("dataset %s (%d prompts, shuffled)", filepath.Base(o.dataset), d.Len())
 	}
 	p.prompts = d
 	return desc, nil
