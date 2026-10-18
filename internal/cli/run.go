@@ -80,13 +80,17 @@ func (o *runOptions) register(fs *flag.FlagSet) {
 	fs.Var(&o.concurrency, "concurrency", "closed-loop `levels`; a list such as 1,2,4,8 runs a sweep (default 1)")
 	fs.Var(&o.rates, "rate", "open-loop arrival `rates` in requests/s; a list such as 0.5,1,2 runs a sweep")
 	fs.StringVar(&o.arrival, "arrival", string(loadgen.Poisson), "open-loop arrival process: poisson or constant")
-	fs.IntVar(&o.maxInFlight, "max-in-flight", 1024, "open-loop cap on concurrent requests; 0 means no cap")
+	fs.IntVar(&o.maxInFlight, "max-in-flight", 1024,
+		"open-loop cap on concurrent requests; arrivals held back by it are sent late and counted as send lag; 0 means no cap")
 	fs.DurationVar(&o.duration, "duration", 0, "length of each stage (default 30s unless --requests is set)")
 	fs.IntVar(&o.requests, "requests", 0, "number of requests per stage")
 	fs.IntVar(&o.warmup, "warmup", 0, "requests sent before the first stage and left out of the results")
-	fs.DurationVar(&o.timeout, "timeout", 5*time.Minute, "per-request timeout; 0 disables it")
-	fs.DurationVar(&o.idleTimeout, "idle-timeout", 0, "fail a request after this long without receiving data; 0 disables it")
-	fs.Uint64Var(&o.seed, "seed", 1, "seed for synthetic prompts, shuffling and Poisson arrivals")
+	fs.DurationVar(&o.timeout, "timeout", 5*time.Minute,
+		"per-request timeout; timed-out requests count as errors, not in the latency percentiles; 0 disables it")
+	fs.DurationVar(&o.idleTimeout, "idle-timeout", 0,
+		"fail a request after this long without receiving data, response headers included; 0 disables it")
+	fs.Uint64Var(&o.seed, "seed", 1, "seed for synthetic prompts, shuffling and Poisson arrivals; runs with the same seed\n"+
+		"send the same prompts, so give repeated runs against one server their own seed (a prefix cache could serve them)")
 	fs.Var(&o.outs, "out", "write results to a `file`: .json, .csv (one row per request) or .md (repeatable)")
 	fs.BoolVar(&o.jsonRecords, "json-records", true, "include one record per request in JSON output (CSV always has them)")
 	fs.BoolVar(&o.quiet, "quiet", false, "do not print progress")
