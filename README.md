@@ -61,8 +61,7 @@ rehearsed without a GPU.
 
 ## Install
 
-Not yet published to any package registry or as release binaries; install
-from source with Go 1.26 or later:
+No release binaries yet; install from source with Go 1.26 or later:
 
 ```sh
 go install github.com/aozmekik/llm-loadtest/cmd/llm-loadtest@latest
