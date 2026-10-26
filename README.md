@@ -7,7 +7,7 @@ Load-test OpenAI-compatible streaming chat endpoints and measure time to
 first token, inter-token latency and throughput, with open-loop arrivals
 that do not hide queueing.
 
-Status: early (v0.1.0). Flags, output formats and the Go API may change.
+Status: early. Flags, output formats and the Go API may change.
 
 ## Why
 
@@ -61,10 +61,44 @@ rehearsed without a GPU.
 
 ## Install
 
-No release binaries yet; install from source with Go 1.26 or later:
+Releases from v0.2.0 on carry static binaries for Linux, macOS and Windows
+(amd64 and arm64), Linux packages and snaps. Download them from the
+[releases page](https://github.com/aozmekik/llm-loadtest/releases):
+
+```sh
+# Debian and Ubuntu
+sudo apt install ./llm-loadtest_*_amd64.deb
+# Fedora, RHEL and openSUSE
+sudo dnf install ./llm-loadtest-*.x86_64.rpm
+# Alpine (the package is not signed with an Alpine key)
+sudo apk add --allow-untrusted ./llm-loadtest_*_x86_64.apk
+# Snap, strictly confined (network, network-bind and home)
+sudo snap install --dangerous ./llm-loadtest_*_amd64.snap
+```
+
+Every package is installed and smoke-tested on Ubuntu 24.04 and 22.04,
+Debian stable, Fedora and Alpine in CI before a release, and the `.deb` is
+checked with lintian.
+
+Or install from source with Go 1.26 or later:
 
 ```sh
 go install github.com/aozmekik/llm-loadtest/cmd/llm-loadtest@latest
+```
+
+### Verify a download
+
+`checksums.txt` is signed with [cosign](https://docs.sigstore.dev/) by the
+release workflow (keyless, with its GitHub OIDC identity), and every archive,
+package and snap has a build provenance attestation. Each archive and package
+also comes with an SPDX SBOM (`*.sbom.json`).
+
+```sh
+cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/aozmekik/llm-loadtest/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+sha256sum --check --ignore-missing checksums.txt
+gh attestation verify llm-loadtest_*_amd64.deb --repo aozmekik/llm-loadtest
 ```
 
 The reusable packages (`mock` and `sse`, see [As a library](#as-a-library)):
