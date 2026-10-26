@@ -17,7 +17,7 @@ gzip -9n < docs/llm-loadtest.1 > "$out/llm-loadtest.1.gz"
 cat > "$out/changelog.Debian" <<EOF
 llm-loadtest (${version}-1) unstable; urgency=medium
 
-  * Release ${version}. See /usr/share/doc/llm-loadtest/README.md and
+  * New upstream release. Release notes:
     https://github.com/aozmekik/llm-loadtest/blob/main/CHANGELOG.md
 
  -- Ahmed Semih Özmekik <ahmed-semih@outlook.com>  ${date}
