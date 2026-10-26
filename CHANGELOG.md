@@ -15,6 +15,8 @@ change between minor versions.
   package on Ubuntu 24.04 and 22.04, Debian stable, Fedora and Alpine and
   runs a short load test against the mock; the `.deb` is checked with
   lintian.
+- A man page, `llm-loadtest(1)`, installed by the packages and included in
+  the archives.
 - A tag-triggered release workflow: SPDX SBOMs for archives and packages,
   a keyless cosign signature on `checksums.txt`, and build provenance
   attestations for every artifact. The snap is published to the Snap Store
