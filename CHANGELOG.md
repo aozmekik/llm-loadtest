@@ -8,6 +8,18 @@ change between minor versions.
 
 ## [Unreleased]
 
+### Added
+
+- Release packages: `.deb`, `.rpm` and `.apk` (nfpm), and a strictly
+  confined snap for amd64 and arm64, next to the archives. CI installs each
+  package on Ubuntu 24.04 and 22.04, Debian stable, Fedora and Alpine and
+  runs a short load test against the mock; the `.deb` is checked with
+  lintian.
+- A tag-triggered release workflow: SPDX SBOMs for archives and packages,
+  a keyless cosign signature on `checksums.txt`, and build provenance
+  attestations for every artifact. The snap is published to the Snap Store
+  `edge` channel once store credentials are configured.
+
 ## [0.1.0] - 2026-10-18
 
 ### Added

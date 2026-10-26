@@ -1,5 +1,7 @@
-# GoReleaser configuration for future releases: https://goreleaser.com
-# Nothing has been released yet. CI runs "goreleaser check" on this file.
+# GoReleaser configuration: https://goreleaser.com
+# .github/workflows/release.yml runs it on a v* tag. CI builds a snapshot of
+# every package on each pull request and installs it on Ubuntu, Debian,
+# Fedora and Alpine (the "packages" job).
 version: 2
 
 project_name: llm-loadtest
@@ -35,8 +37,68 @@ archives:
       - README.md
       - CHANGELOG.md
 
+nfpms:
+  - id: packages
+    ids: [llm-loadtest]
+    package_name: llm-loadtest
+    file_name_template: "{{ .ConventionalFileName }}"
+    vendor: Ahmed Semih Özmekik
+    maintainer: Ahmed Semih Özmekik <ahmed-semih@outlook.com>
+    homepage: https://github.com/aozmekik/llm-loadtest
+    description: |-
+      Load-test OpenAI-compatible streaming LLM endpoints.
+      Measures time to first token, inter-token latency and throughput, with
+      open-loop arrivals that do not hide queueing, and includes a mock server.
+    license: MIT
+    section: utils
+    priority: optional
+    formats: [deb, rpm, apk]
+    bindir: /usr/bin
+    contents:
+      # Debian policy 12.5 wants the license in /usr/share/doc/<package>/copyright,
+      # Fedora in /usr/share/licenses/<package>.
+      - src: LICENSE
+        dst: /usr/share/doc/llm-loadtest/copyright
+        packager: deb
+        file_info:
+          mode: 0644
+      - src: LICENSE
+        dst: /usr/share/licenses/llm-loadtest/LICENSE
+        packager: rpm
+        file_info:
+          mode: 0644
+      - src: LICENSE
+        dst: /usr/share/licenses/llm-loadtest/LICENSE
+        packager: apk
+        file_info:
+          mode: 0644
+      - src: README.md
+        dst: /usr/share/doc/llm-loadtest/README.md
+        file_info:
+          mode: 0644
+    rpm:
+      group: Applications/System
+    deb:
+      fields:
+        Bugs: https://github.com/aozmekik/llm-loadtest/issues
+
 checksum:
   name_template: checksums.txt
+
+# Software bill of materials for each archive and package (syft).
+sboms:
+  - id: archives
+    artifacts: archive
+  - id: packages
+    artifacts: package
+
+# Keyless signature of checksums.txt with the workflow's OIDC identity; see
+# "Verify a download" in the README.
+signs:
+  - cmd: cosign
+    artifacts: checksum
+    signature: "${artifact}.sigstore.json"
+    args: [sign-blob, "--bundle=${signature}", "${artifact}", --yes]
 
 changelog:
   use: git
