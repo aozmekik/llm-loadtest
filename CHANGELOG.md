@@ -8,6 +8,8 @@ change between minor versions.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-02
+
 ### Added
 
 - Release packages: `.deb`, `.rpm` and `.apk` (nfpm), and a strictly
@@ -58,5 +60,6 @@ change between minor versions.
 - The `sse` package: a streaming Server-Sent Events decoder following the
   WHATWG parsing rules.
 
-[Unreleased]: https://github.com/aozmekik/llm-loadtest/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/aozmekik/llm-loadtest/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/aozmekik/llm-loadtest/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/aozmekik/llm-loadtest/releases/tag/v0.1.0

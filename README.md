@@ -426,7 +426,6 @@ with tests), from `go test -coverprofile=cover.out ./... && go tool cover
 - Prompt-length and output-length distributions, and importers for public
   datasets such as ShareGPT.
 - Re-aggregating ITL across result files by storing sketches in the JSON.
-- Release binaries via the included `.goreleaser.yaml`.
 
 ## References and inspiration
 
