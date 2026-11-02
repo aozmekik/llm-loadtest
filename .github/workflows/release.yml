@@ -52,6 +52,7 @@ jobs:
     name: Snap (${{ matrix.arch }})
     needs: goreleaser
     strategy:
+      fail-fast: false # one architecture failing shouldn't cancel the other
       matrix:
         include:
           - arch: amd64
