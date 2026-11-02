@@ -33,9 +33,12 @@ parts:
     plugin: nil
     source: .
     build-snaps: [go/1.26/stable]
+    # git for the version below. The project directory is mounted from the
+    # host with another owner, so git needs safe.directory to read it.
+    build-packages: [git]
     override-pull: |
       craftctl default
-      version="$(git describe --tags --always 2>/dev/null || echo dev)"
+      version="$(git -c safe.directory='*' -C "$CRAFT_PROJECT_DIR" describe --tags --always 2>/dev/null || echo dev)"
       craftctl set version="${version#v}"
     override-build: |
       CGO_ENABLED=0 go build -trimpath \

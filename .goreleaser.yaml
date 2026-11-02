@@ -129,3 +129,5 @@ changelog:
 
 release:
   draft: true
+  # a re-run for the same tag replaces its draft instead of failing
+  replace_existing_draft: true
