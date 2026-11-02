@@ -1,0 +1,95 @@
+name: Release
+
+# Pushing a v* tag builds the archives, .deb/.rpm/.apk packages and snaps,
+# and attaches them to a draft GitHub release with SBOMs, a cosign-signed
+# checksums.txt and build provenance attestations. Publishing the draft is a
+# manual step.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  goreleaser:
+    name: Archives and packages
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the draft release
+      id-token: write # keyless cosign signature and provenance
+      attestations: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # changelog from git history
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+      - uses: anchore/sbom-action/download-syft@v0
+      - uses: sigstore/cosign-installer@v4
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.deb
+            dist/*.rpm
+            dist/*.apk
+
+  snap:
+    name: Snap (${{ matrix.arch }})
+    needs: goreleaser
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: write # upload to the draft release
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # git describe sets the snap version
+      - uses: snapcore/action-build@v1
+        id: build
+      - name: Install and smoke-test the snap
+        run: |
+          sudo snap install --dangerous "${{ steps.build.outputs.snap }}"
+          scripts/smoke.sh /snap/bin/llm-loadtest
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: ${{ steps.build.outputs.snap }}
+      - name: Attach to the draft release
+        run: gh release upload "$GITHUB_REF_NAME" "${{ steps.build.outputs.snap }}" --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+      # Publishing needs the name registered in the Snap Store and a
+      # SNAPCRAFT_STORE_CREDENTIALS secret (snapcraft export-login); until
+      # then the snap is only attached to the release.
+      - name: Check for Snap Store credentials
+        id: store
+        run: echo "enabled=${{ secrets.SNAPCRAFT_STORE_CREDENTIALS != '' }}" >> "$GITHUB_OUTPUT"
+      - uses: snapcore/action-publish@v1
+        if: steps.store.outputs.enabled == 'true'
+        env:
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
+        with:
+          snap: ${{ steps.build.outputs.snap }}
+          release: edge

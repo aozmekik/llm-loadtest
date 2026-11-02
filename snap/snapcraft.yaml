@@ -1,0 +1,43 @@
+name: llm-loadtest
+base: core24
+adopt-info: llm-loadtest
+summary: Load-test OpenAI-compatible streaming LLM endpoints
+description: |
+  llm-loadtest measures time to first token, inter-token latency and
+  throughput of OpenAI-compatible streaming chat endpoints (vLLM, SGLang,
+  llama.cpp, Ollama, OpenAI and others), with open-loop arrivals that do not
+  hide queueing. It ships with a mock server, so a benchmark can be rehearsed
+  without a GPU.
+
+  The API key is read from an environment variable and never written to disk.
+license: MIT
+website: https://github.com/aozmekik/llm-loadtest
+source-code: https://github.com/aozmekik/llm-loadtest
+issues: https://github.com/aozmekik/llm-loadtest/issues
+grade: stable
+confinement: strict
+
+platforms:
+  amd64:
+  arm64:
+
+apps:
+  llm-loadtest:
+    command: bin/llm-loadtest
+    # network: talk to the endpoint under test; network-bind: the mock
+    # server; home: read prompt datasets and write reports.
+    plugs: [network, network-bind, home]
+
+parts:
+  llm-loadtest:
+    plugin: nil
+    source: .
+    build-snaps: [go/1.26/stable]
+    override-pull: |
+      craftctl default
+      version="$(git describe --tags --always 2>/dev/null || echo dev)"
+      craftctl set version="${version#v}"
+    override-build: |
+      CGO_ENABLED=0 go build -trimpath \
+        -ldflags "-s -w -X main.version=$(craftctl get version)" \
+        -o "$CRAFT_PART_INSTALL/bin/llm-loadtest" ./cmd/llm-loadtest

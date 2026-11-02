@@ -1,0 +1,117 @@
+.TH LLM-LOADTEST 1 "2026-10-26" "llm-loadtest" "User Commands"
+.SH NAME
+llm-loadtest \- load-test OpenAI-compatible streaming LLM endpoints
+.SH SYNOPSIS
+.B llm-loadtest run
+.B \-\-base\-url
+.I URL
+.B \-\-model
+.I NAME
+.RI [ flags ]
+.br
+.B llm-loadtest mock
+.RI [ flags ]
+.br
+.B llm-loadtest compare
+.RB [ \-\-threshold
+.IR PCT ]
+.I BASE.json HEAD.json
+.br
+.B llm-loadtest version
+.SH DESCRIPTION
+.B llm-loadtest
+sends streaming chat-completion requests to an OpenAI-compatible server
+(vLLM, SGLang, llama.cpp, Ollama, OpenAI and others) and reports time to
+first token, inter-token latency, time per output token, end-to-end latency
+and throughput, with p50, p90, p95 and p99 for each load level.
+.PP
+Load is either closed-loop, at a fixed number of requests in flight, or
+open-loop, at a target arrival rate. Open-loop latency is measured from each
+request's scheduled start, so a server that falls behind cannot hide the
+queueing it causes.
+.PP
+Run
+.B llm-loadtest
+.I command
+.B \-h
+for the full list of flags of a command.
+.SH COMMANDS
+.TP
+.B run
+Run a load test and print a Markdown report. The main flags are
+.B \-\-concurrency
+(a level, or a list such as 1,2,4,8 for a sweep),
+.B \-\-rate
+(open-loop arrivals in requests per second, also as a list),
+.B \-\-duration
+or
+.B \-\-requests
+per stage,
+.B \-\-input\-tokens
+or
+.B \-\-dataset
+for prompts,
+.B \-\-max\-tokens
+and
+.B \-\-out
+(a .json, .csv or .md file; repeatable).
+.TP
+.B mock
+Serve an OpenAI-compatible chat-completions API with synthetic latency on
+.B \-\-addr
+(default 127.0.0.1:8000), for rehearsing a benchmark without a GPU.
+.B \-\-slots
+limits concurrent generations;
+.BR \-\-ttft ,
+.B \-\-itl
+and
+.B \-\-output\-tokens
+take distributions such as normal:150ms,30ms or uniform:64,256.
+.TP
+.B compare
+Compare two JSON results stage by stage. With
+.BR \-\-threshold ,
+exit with status 1 when a throughput or latency metric is more than
+.I PCT
+percent worse.
+.TP
+.B version
+Print the version, the Go version and the platform.
+.SH ENVIRONMENT
+.TP
+.B OPENAI_API_KEY
+Sent as a bearer token, but only when
+.B \-\-base\-url
+points at api.openai.com.
+.B \-\-api\-key\-env
+.I NAME
+reads the key from another variable and sends it to
+.BR \-\-base\-url .
+The key is never printed or saved.
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+The run failed, or
+.B compare
+found a regression.
+.TP
+.B 2
+Invalid flags or arguments.
+.TP
+.B 130
+Stopped by SIGINT or SIGTERM; partial results were written.
+.SH EXAMPLES
+Rehearse against the built-in mock:
+.PP
+.nf
+.RS
+llm-loadtest mock \-\-slots 8 &
+llm-loadtest run \-\-base\-url http://127.0.0.1:8000/v1 \-\-model mock \e
+    \-\-max\-tokens 64 \-\-concurrency 1,4,16 \-\-duration 10s
+.RE
+.fi
+.SH SEE ALSO
+https://github.com/aozmekik/llm-loadtest

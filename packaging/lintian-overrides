@@ -1,0 +1,6 @@
+# Go binaries are statically linked by design (CGO_ENABLED=0, standard
+# library only), which is what lets one binary run on every distribution.
+llm-loadtest: statically-linked-binary [usr/bin/llm-loadtest]
+# Built from the upstream repository, not uploaded to the Debian archive, so
+# there is no ITP bug for the first changelog entry to close.
+llm-loadtest: initial-upload-closes-no-bugs

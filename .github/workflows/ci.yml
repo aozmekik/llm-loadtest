@@ -72,6 +72,61 @@ jobs:
           version: "~> v2"
           args: check
 
+  packages:
+    name: Packages (install on Ubuntu, Debian, Fedora, Alpine)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+      - uses: anchore/sbom-action/download-syft@v0
+      - name: Build a snapshot release
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean --skip=sign
+      - name: Lintian
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lintian
+          lintian --info --display-info --fail-on error,warning dist/*_amd64.deb
+      - name: Install each package and run the smoke test
+        run: |
+          deb=$(ls dist/*_amd64.deb)
+          rpm=$(ls dist/*.x86_64.rpm)
+          apk=$(ls dist/*_x86_64.apk)
+          for image in ubuntu:24.04 ubuntu:22.04 debian:stable-slim; do
+            echo "::group::$image"
+            docker run --rm -v "$PWD:/src:ro" -w /src "$image" \
+              sh -c "apt-get update -qq && apt-get install -y -qq ./$deb && scripts/smoke.sh"
+            echo "::endgroup::"
+          done
+          echo "::group::fedora:latest"
+          docker run --rm -v "$PWD:/src:ro" -w /src fedora:latest \
+            sh -c "dnf install -y -q ./$rpm && scripts/smoke.sh"
+          echo "::endgroup::"
+          echo "::group::alpine:latest"
+          docker run --rm -v "$PWD:/src:ro" -w /src alpine:latest \
+            sh -c "apk add --allow-untrusted -q ./$apk && scripts/smoke.sh"
+          echo "::endgroup::"
+
+  snap:
+    name: Snap
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: snapcore/action-build@v1
+        id: build
+      - name: Install the snap and run the smoke test
+        run: |
+          sudo snap install --dangerous "${{ steps.build.outputs.snap }}"
+          scripts/smoke.sh /snap/bin/llm-loadtest
+
   prompt-tokens:
     name: Synthetic prompt lengths (tiktoken)
     runs-on: ubuntu-latest
